@@ -1,5 +1,5 @@
 #TODO: implementer loader
-from langchain.document_loaders import DirectoryLoader, PyPDFLoader
+from langchain_community.document_loaders import DirectoryLoader, PyPDFLoader
 
 class DocumentLoader:
     def __init__(self, data_dir: str, file_type: str = "pdf"):
