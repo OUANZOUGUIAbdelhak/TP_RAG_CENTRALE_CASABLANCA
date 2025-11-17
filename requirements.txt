@@ -4,3 +4,4 @@ Sentence-Transformers: embeddings HF
 pypdf: loader PDF
 transformers, torch, accelerate: LLM open-source
 huggingface-hub
+We are going to use these libraries to build a Retrieval-Augmented Generation (RAG) pipeline with LangChain, ChromaDB, and Sentence-Transformers.
