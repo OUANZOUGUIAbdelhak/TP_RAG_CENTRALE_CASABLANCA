@@ -6,7 +6,7 @@ Les membres du groupe : 
 
 - BOURHAIM Ayoub
 
-- DAHHASI Chaymae
+- DAHHASSI Chaymae
 
 - AIT BIHI Laila
 
