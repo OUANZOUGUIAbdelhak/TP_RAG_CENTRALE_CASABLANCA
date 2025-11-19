@@ -5,7 +5,7 @@ from splitter import DocumentSplitter
 from loader import DocumentLoader
 
 class DocumentIndexer:
-    def _init_(self, data_dir: str, vectorstore_dir: str, embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
+    def __init__(self, data_dir: str, vectorstore_dir: str, embedding_model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
         self.data_dir = data_dir
         self.vectorstore_dir = vectorstore_dir
         self.embedder = Embedder(model_name=embedding_model_name)
