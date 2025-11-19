@@ -1,1 +1,42 @@
-#Aucune variable ne doit être hardcodée
+# Configuration file for RAG System
+# No hardcoded values - everything goes here!
+
+# Paths and directories
+paths:
+  data_dir: "./data"  # where your PDF documents are stored
+  vectorstore_dir: "./vectorstore"  # where the vector database will be saved
+  
+# Embedding model configuration
+embedding:
+  model_name: "sentence-transformers/all-MiniLM-L6-v2"  # the model we use to create embeddings
+  # Other options you could try:
+  # - "sentence-transformers/all-mpnet-base-v2" (better quality, slower)
+  # - "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2" (supports multiple languages)
+  
+# Document processing settings
+document_processing:
+  chunk_size: 500  # how big each text chunk should be (in characters)
+  chunk_overlap: 50  # how much overlap between chunks (helps maintain context)
+  file_type: "pdf"  # what kind of documents we're loading
+  
+# Retrieval settings (Q2)
+retrieval:
+  default_k: 5  # default number of documents to retrieve
+  score_threshold: 0.5  # only return documents with score below this (lower = better)
+  
+# LLM settings (for Q3)
+llm:
+  model_name: "gpt2"  # placeholder - you'll need to choose your LLM
+  temperature: 0.7  # controls randomness (0 = focused, 1 = creative)
+  max_tokens: 512  # maximum length of generated response
+  
+# Evaluation settings (for Q4)
+evaluation:
+  metrics:
+    - "relevance"  # how relevant are the retrieved documents?
+    - "accuracy"  # how accurate are the LLM answers?
+  
+# Chatbot settings (for Q5 - bonus)
+chatbot:
+  max_history: 5  # how many previous messages to remember
+  system_prompt: "You are a helpful assistant that answers questions based on the provided documents."

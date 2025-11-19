@@ -6,5 +6,6 @@ pypdf
 transformers
 huggingface-hub
 python-dotenv
-accelarate
+accelerate
 torch
+pyyaml
