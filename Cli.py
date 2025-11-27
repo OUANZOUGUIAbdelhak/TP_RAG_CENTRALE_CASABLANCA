@@ -40,7 +40,7 @@ def load_config():
             config = yaml.safe_load(f)
         return config
     except Exception as e:
-        print(f"⚠️  Warning: Could not load Config.yaml: {e}")
+        print(f"  Warning: Could not load Config.yaml: {e}")
         print("Using default configuration...\n")
         return {
             'paths': {
@@ -74,7 +74,7 @@ def cmd_build(args, config):
     # Check if we have PDFs
     print("🔍 Checking for PDF files...")
     if not check_data_folder(data_dir):
-        print("\n❌ No PDF files found!")
+        print("\n No PDF files found!")
         print(f"💡 Please add 3-4 PDF files to: {data_dir}")
         return 1
     
