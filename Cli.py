@@ -65,14 +65,14 @@ def cmd_build(args, config):
     Command: Build the index from PDF documents (Q1)
     """
     print("\n" + "="*80)
-    print("🏗️  BUILD INDEX (Q1)")
+    print("  BUILD INDEX (Q1)")
     print("="*80 + "\n")
     
     data_dir = config['paths']['data_dir']
     vectorstore_dir = config['paths']['vectorstore_dir']
     
     # Check if we have PDFs
-    print("🔍 Checking for PDF files...")
+    print(" Checking for PDF files...")
     if not check_data_folder(data_dir):
         print("\n No PDF files found!")
         print(f" Please add 3-4 PDF files to: {data_dir}")
