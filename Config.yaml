@@ -1,16 +1,26 @@
+# Configuration file for RAG System
+# No hardcoded values - everything goes here!
 
+# Paths and directories
+paths:
+  data_dir: "./data"  # where your PDF documents are stored
+  vectorstore_dir: "./vectorstore"  # where the vector database will be saved
   
 # Embedding model configuration
 embedding:
-  model_name: "sentence-transformers/all-MiniLM-L6-v2"  # the model we use to create embeddings
+  model_name: "BAAI/bge-small-en-v1.5"  # Better embedding model for LlamaIndex
   # Other options you could try:
-  # - "sentence-transformers/all-mpnet-base-v2" (better quality, slower)
-  # - "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2" (supports multiple languages)
+  # - "BAAI/bge-base-en-v1.5" (better quality, slower)
+  # - "sentence-transformers/all-MiniLM-L6-v2" (faster, smaller)
+  # - "sentence-transformers/all-mpnet-base-v2" (best quality, slowest)
   
 # Document processing settings
 document_processing:
-  chunk_size: 500  # how big each text chunk should be (in characters)
-  chunk_overlap: 50  # how much overlap between chunks (helps maintain context)
+  chunk_size: 1024  # how big each text chunk should be (in characters)
+                    # Larger chunks (1024-2048) preserve more context for better answers
+                    # Smaller chunks (512-1024) are more focused but may lose context
+  chunk_overlap: 128  # how much overlap between chunks (helps maintain context)
+                      # Should be ~10-20% of chunk_size for optimal results
   file_type: "pdf"  # what kind of documents we're loading
   
 # Retrieval settings (Q2)
@@ -20,9 +30,15 @@ retrieval:
   
 # LLM settings (for Q3)
 llm:
-  model_name: "gpt2"  # placeholder - you'll need to choose your LLM
+  model_name: "google/flan-t5-base"  # HuggingFace model (fallback if Groq not available)
   temperature: 0.7  # controls randomness (0 = focused, 1 = creative)
   max_tokens: 512  # maximum length of generated response
+
+# Groq LLM settings (for Q3) - Preferred LLM
+groq:
+  api_key: "your_key_here"  # Your Groq API key
+  model: "llama-3.3-70b-versatile"  # Groq model to use
+  temperature: 0.7  # controls randomness (0 = focused, 1 = creative)
   
 # Evaluation settings (for Q4)
 evaluation:
