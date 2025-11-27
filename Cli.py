@@ -75,16 +75,16 @@ def cmd_build(args, config):
     print("🔍 Checking for PDF files...")
     if not check_data_folder(data_dir):
         print("\n No PDF files found!")
-        print(f"💡 Please add 3-4 PDF files to: {data_dir}")
+        print(f" Please add 3-4 PDF files to: {data_dir}")
         return 1
     
     print()
     
     # Confirm before building (unless --force flag is used)
     if not args.force:
-        response = input("🚀 Ready to build? This might take a few minutes. (y/n): ")
+        response = input(" Ready to build? This might take a few minutes. (y/n): ")
         if response.lower() not in ['y', 'yes']:
-            print("👋 Cancelled.")
+            print(" Cancelled.")
             return 0
         print()
     
@@ -100,11 +100,11 @@ def cmd_build(args, config):
         
         indexer.build_index()
         
-        print("\n✅ Build complete! You can now use search, ask, evaluate, or chat commands.")
+        print("\n Build complete! You can now use search, ask, evaluate, or chat commands.")
         return 0
         
     except Exception as e:
-        print(f"\n❌ Error building index: {e}")
+        print(f"\n Error building index: {e}")
         return 1
 
 
@@ -113,7 +113,7 @@ def cmd_search(args, config):
     Command: Search for documents (Q2)
     """
     print("\n" + "="*80)
-    print("🔍 SEARCH DOCUMENTS (Q2)")
+    print(" SEARCH DOCUMENTS (Q2)")
     print("="*80 + "\n")
     
     vectorstore_dir = config['paths']['vectorstore_dir']
@@ -125,7 +125,7 @@ def cmd_search(args, config):
     else:
         query = input("Enter your search query: ").strip()
         if not query:
-            print("❌ No query provided.")
+            print(" No query provided.")
             return 1
     
     print()
@@ -141,8 +141,8 @@ def cmd_search(args, config):
         return 0
         
     except Exception as e:
-        print(f"❌ Error during search: {e}")
-        print("💡 Have you built the index first? Run: python cli.py build")
+        print(f" Error during search: {e}")
+        print(" Have you built the index first? Run: python cli.py build")
         return 1
 
 
@@ -151,7 +151,7 @@ def cmd_ask(args, config):
     Command: Ask a question and get an answer (Q3)
     """
     print("\n" + "="*80)
-    print("❓ ASK A QUESTION (Q3)")
+    print(" ASK A QUESTION (Q3)")
     print("="*80 + "\n")
     
     vectorstore_dir = config['paths']['vectorstore_dir']
@@ -162,7 +162,7 @@ def cmd_ask(args, config):
     else:
         question = input("Enter your question: ").strip()
         if not question:
-            print("❌ No question provided.")
+            print(" No question provided.")
             return 1
     
     print()
@@ -178,8 +178,8 @@ def cmd_ask(args, config):
         return 0
         
     except Exception as e:
-        print(f"❌ Error getting answer: {e}")
-        print("💡 Have you built the index first? Run: python cli.py build")
+        print(f" Error getting answer: {e}")
+        print(" Have you built the index first? Run: python cli.py build")
         return 1
 
 
@@ -188,13 +188,13 @@ def cmd_evaluate(args, config):
     Command: Evaluate system performance (Q4)
     """
     print("\n" + "="*80)
-    print("📊 EVALUATE SYSTEM (Q4)")
+    print(" EVALUATE SYSTEM (Q4)")
     print("="*80 + "\n")
     
     vectorstore_dir = config['paths']['vectorstore_dir']
     
     # Sample test cases - YOU SHOULD CUSTOMIZE THESE!
-    print("⚠️  Using default test cases. For better evaluation, modify the test cases in cli.py")
+    print("  Using default test cases. For better evaluation, modify the test cases in cli.py")
     print()
     
     test_cases = [
@@ -229,8 +229,8 @@ def cmd_evaluate(args, config):
         return 0
         
     except Exception as e:
-        print(f"❌ Error during evaluation: {e}")
-        print("💡 Have you built the index first? Run: python cli.py build")
+        print(f" Error during evaluation: {e}")
+        print(" Have you built the index first? Run: python cli.py build")
         return 1
 
 
@@ -239,7 +239,7 @@ def cmd_chat(args, config):
     Command: Start interactive chatbot (Q5 - Bonus)
     """
     print("\n" + "="*80)
-    print("💬 INTERACTIVE CHATBOT (Q5)")
+    print(" INTERACTIVE CHATBOT (Q5)")
     print("="*80 + "\n")
     
     vectorstore_dir = config['paths']['vectorstore_dir']
@@ -257,8 +257,8 @@ def cmd_chat(args, config):
         return 0
         
     except Exception as e:
-        print(f"❌ Error starting chatbot: {e}")
-        print("💡 Have you built the index first? Run: python cli.py build")
+        print(f" Error starting chatbot: {e}")
+        print(" Have you built the index first? Run: python cli.py build")
         return 1
 
 
@@ -308,7 +308,7 @@ Examples:
     # Show help if no command provided
     if not args.command:
         parser.print_help()
-        print("\n💡 Start with: python cli.py build")
+        print("\n Start with: python cli.py build")
         return 0
     
     # Load configuration
@@ -326,7 +326,7 @@ Examples:
     if args.command in commands:
         return commands[args.command](args, config)
     else:
-        print(f"❌ Unknown command: {args.command}")
+        print(f" Unknown command: {args.command}")
         return 1
 
 
@@ -335,10 +335,10 @@ if __name__ == "__main__":
         exit_code = main()
         sys.exit(exit_code)
     except KeyboardInterrupt:
-        print("\n\n👋 Interrupted by user.")
+        print("\n\n Interrupted by user.")
         sys.exit(0)
     except Exception as e:
-        print(f"\n❌ Unexpected error: {e}")
+        print(f"\n Unexpected error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
