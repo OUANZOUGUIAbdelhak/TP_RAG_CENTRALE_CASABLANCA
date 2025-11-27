@@ -1,13 +1,13 @@
 Les membres du groupe : 
 
-OUANZOUGUI Abdelhak 
+- OUANZOUGUI Abdelhak 
 
-BELLMIR Omar
+- BELLMIR Omar
 
-BOURHAIM Ayoub
+- BOURHAIM Ayoub
 
-DAHHASI Chaymae
+- DAHHASSI Chaymae
 
-AIT BIHI Laila
+- AIT BIHI Laila
 
-EL ABDI Ibrahim
+- EL ABDI Ibrahim
