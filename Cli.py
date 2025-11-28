@@ -5,12 +5,12 @@ CLI - Command Line Interface for the RAG System
 This is the main entry point! Run all functionality from here.
 
 Usage:
-    python cli.py build         # Build the index from PDFs (Q1)
-    python cli.py search        # Search documents (Q2)
-    python cli.py ask           # Ask a question (Q3)
-    python cli.py evaluate      # Evaluate the system (Q4)
-    python cli.py chat          # Start interactive chatbot (Q5)
-    python cli.py --help        # Show help
+    python Cli.py build         # Build the index from PDFs (Q1)
+    python Cli.py search        # Search documents (Q2)
+    python Cli.py ask           # Ask a question (Q3)
+    python Cli.py evaluate      # Evaluate the system (Q4)
+    python Cli.py chat          # Start interactive chatbot (Q5)
+    python Cli.py --help        # Show help
 
 No hardcoded values - everything comes from Config.yaml!
 """
@@ -19,15 +19,16 @@ import sys
 import os
 import argparse
 import yaml
+from pathlib import Path
 
 # Add src to the path so we can import our modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from indexer import DocumentIndexer, check_data_folder
-from retriever import DocumentRetriever
-from qa_system import QASystem
-from evaluator import RAGEvaluator
-from chatbot import RAGChatbot
+from src.indexer import DocumentIndexer, check_data_folder
+from src.retriever import DocumentRetriever
+from src.qa_system import QASystem
+from src.evaluator import RAGEvaluator
+from src.chatbot import RAGChatbot
 
 
 def load_config():
@@ -40,7 +41,7 @@ def load_config():
             config = yaml.safe_load(f)
         return config
     except Exception as e:
-        print(f"  Warning: Could not load Config.yaml: {e}")
+        print(f"⚠️  Warning: Could not load Config.yaml: {e}")
         print("Using default configuration...\n")
         return {
             'paths': {
@@ -65,46 +66,54 @@ def cmd_build(args, config):
     Command: Build the index from PDF documents (Q1)
     """
     print("\n" + "="*80)
-    print("  BUILD INDEX (Q1)")
+    print("🏗️  BUILD INDEX (Q1)")
     print("="*80 + "\n")
     
     data_dir = config['paths']['data_dir']
     vectorstore_dir = config['paths']['vectorstore_dir']
     
     # Check if we have PDFs
-    print(" Checking for PDF files...")
+    print("🔍 Checking for PDF files...")
     if not check_data_folder(data_dir):
-        print("\n No PDF files found!")
-        print(f" Please add 3-4 PDF files to: {data_dir}")
+        print("\n❌ No PDF files found!")
+        print(f"💡 Please add 3-4 PDF files to: {data_dir}")
         return 1
     
     print()
     
     # Confirm before building (unless --force flag is used)
     if not args.force:
-        response = input(" Ready to build? This might take a few minutes. (y/n): ")
+        response = input("🚀 Ready to build? This might take a few minutes. (y/n): ")
         if response.lower() not in ['y', 'yes']:
-            print(" Cancelled.")
+            print("👋 Cancelled.")
             return 0
         print()
     
     # Build the index
     try:
+        # Get Groq API key for advanced RAG pipeline (if available)
+        groq_config = config.get('groq', {})
+        groq_api_key = groq_config.get('api_key')
+        groq_model = groq_config.get('model', 'llama-3.3-70b-versatile')
+        
         indexer = DocumentIndexer(
             data_dir=data_dir,
             vectorstore_dir=vectorstore_dir,
             embedding_model_name=config['embedding']['model_name'],
             chunk_size=config['document_processing']['chunk_size'],
-            chunk_overlap=config['document_processing']['chunk_overlap']
+            chunk_overlap=config['document_processing']['chunk_overlap'],
+            groq_api_key=groq_api_key,
+            groq_model=groq_model,
+            use_advanced_rag=True  # Enable advanced RAG pipeline
         )
         
         indexer.build_index()
         
-        print("\n Build complete! You can now use search, ask, evaluate, or chat commands.")
+        print("\n✅ Build complete! You can now use search, ask, evaluate, or chat commands.")
         return 0
         
     except Exception as e:
-        print(f"\n Error building index: {e}")
+        print(f"\n❌ Error building index: {e}")
         return 1
 
 
@@ -113,7 +122,7 @@ def cmd_search(args, config):
     Command: Search for documents (Q2)
     """
     print("\n" + "="*80)
-    print(" SEARCH DOCUMENTS (Q2)")
+    print("🔍 SEARCH DOCUMENTS (Q2)")
     print("="*80 + "\n")
     
     vectorstore_dir = config['paths']['vectorstore_dir']
@@ -125,7 +134,7 @@ def cmd_search(args, config):
     else:
         query = input("Enter your search query: ").strip()
         if not query:
-            print(" No query provided.")
+            print("❌ No query provided.")
             return 1
     
     print()
@@ -141,8 +150,10 @@ def cmd_search(args, config):
         return 0
         
     except Exception as e:
-        print(f" Error during search: {e}")
-        print(" Have you built the index first? Run: python cli.py build")
+        print(f"❌ Error during search: {e}")
+        print("💡 Have you built the index first? Run: python Cli.py build")
+        import traceback
+        traceback.print_exc()
         return 1
 
 
@@ -151,7 +162,7 @@ def cmd_ask(args, config):
     Command: Ask a question and get an answer (Q3)
     """
     print("\n" + "="*80)
-    print(" ASK A QUESTION (Q3)")
+    print("❓ ASK A QUESTION (Q3)")
     print("="*80 + "\n")
     
     vectorstore_dir = config['paths']['vectorstore_dir']
@@ -162,7 +173,7 @@ def cmd_ask(args, config):
     else:
         question = input("Enter your question: ").strip()
         if not question:
-            print(" No question provided.")
+            print("❌ No question provided.")
             return 1
     
     print()
@@ -178,8 +189,10 @@ def cmd_ask(args, config):
         return 0
         
     except Exception as e:
-        print(f" Error getting answer: {e}")
-        print(" Have you built the index first? Run: python cli.py build")
+        print(f"❌ Error getting answer: {e}")
+        print("💡 Have you built the index first? Run: python Cli.py build")
+        import traceback
+        traceback.print_exc()
         return 1
 
 
@@ -188,13 +201,13 @@ def cmd_evaluate(args, config):
     Command: Evaluate system performance (Q4)
     """
     print("\n" + "="*80)
-    print(" EVALUATE SYSTEM (Q4)")
+    print("📊 EVALUATE SYSTEM (Q4)")
     print("="*80 + "\n")
     
     vectorstore_dir = config['paths']['vectorstore_dir']
     
     # Sample test cases - YOU SHOULD CUSTOMIZE THESE!
-    print("  Using default test cases. For better evaluation, modify the test cases in cli.py")
+    print("⚠️  Using default test cases. For better evaluation, modify the test cases in cli.py")
     print()
     
     test_cases = [
@@ -229,8 +242,10 @@ def cmd_evaluate(args, config):
         return 0
         
     except Exception as e:
-        print(f" Error during evaluation: {e}")
-        print(" Have you built the index first? Run: python cli.py build")
+        print(f"❌ Error during evaluation: {e}")
+        print("💡 Have you built the index first? Run: python Cli.py build")
+        import traceback
+        traceback.print_exc()
         return 1
 
 
@@ -239,7 +254,7 @@ def cmd_chat(args, config):
     Command: Start interactive chatbot (Q5 - Bonus)
     """
     print("\n" + "="*80)
-    print(" INTERACTIVE CHATBOT (Q5)")
+    print("💬 INTERACTIVE CHATBOT (Q5)")
     print("="*80 + "\n")
     
     vectorstore_dir = config['paths']['vectorstore_dir']
@@ -257,8 +272,10 @@ def cmd_chat(args, config):
         return 0
         
     except Exception as e:
-        print(f" Error starting chatbot: {e}")
-        print(" Have you built the index first? Run: python cli.py build")
+        print(f"❌ Error starting chatbot: {e}")
+        print("💡 Have you built the index first? Run: python Cli.py build")
+        import traceback
+        traceback.print_exc()
         return 1
 
 
@@ -271,11 +288,11 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python cli.py build              Build index from PDFs
-  python cli.py search "machine learning"    Search documents
-  python cli.py ask "What is AI?"            Ask a question
-  python cli.py evaluate --quick             Quick evaluation
-  python cli.py chat                         Start chatbot
+  python Cli.py build              Build index from PDFs
+  python Cli.py search "machine learning"    Search documents
+  python Cli.py ask "What is AI?"            Ask a question
+  python Cli.py evaluate --quick             Quick evaluation
+  python Cli.py chat                         Start chatbot
         """
     )
     
@@ -308,7 +325,7 @@ Examples:
     # Show help if no command provided
     if not args.command:
         parser.print_help()
-        print("\n Start with: python cli.py build")
+        print("\n💡 Start with: python Cli.py build")
         return 0
     
     # Load configuration
@@ -326,7 +343,7 @@ Examples:
     if args.command in commands:
         return commands[args.command](args, config)
     else:
-        print(f" Unknown command: {args.command}")
+        print(f"❌ Unknown command: {args.command}")
         return 1
 
 
@@ -335,10 +352,10 @@ if __name__ == "__main__":
         exit_code = main()
         sys.exit(exit_code)
     except KeyboardInterrupt:
-        print("\n\n Interrupted by user.")
+        print("\n\n👋 Interrupted by user.")
         sys.exit(0)
     except Exception as e:
-        print(f"\n Unexpected error: {e}")
+        print(f"\n❌ Unexpected error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
