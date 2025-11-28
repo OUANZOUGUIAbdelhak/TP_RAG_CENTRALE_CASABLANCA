@@ -1,10 +1,15 @@
 # FastAPI Backend - RAG System
 
-RESTful API backend for the RAG system.
+RESTful API backend for the RAG system. Now using the **new modular structure** (Q1-Q5 modules).
 
 ## Quick Start
 
 ```bash
+# From project root
+python -m src.backend.api
+
+# Or from src/ directory
+cd src
 python backend/api.py
 ```
 
@@ -96,19 +101,31 @@ Optional:
 ## Architecture
 
 ```
-FastAPI Backend
+FastAPI Backend (NEW: Uses modular structure)
 ├── File Management
 │   ├── Upload (multipart/form-data)
 │   ├── List (directory tree)
 │   └── Delete (files/folders)
-├── RAG System
-│   ├── Build Index (vectorization)
-│   └── Search (similarity search)
-└── Chat System
-    ├── Send Message (with context)
+├── RAG System (Uses Q1-Q3 modules)
+│   ├── Build Index → indexer.py (Q1)
+│   └── Search → retriever.py (Q2)
+│   └── Q&A → qa_system.py (Q3)
+└── Chat System (Uses Q5 module)
+    ├── Send Message (with context) → chatbot.py (Q5)
     ├── Sessions (multiple conversations)
     └── History (persistent storage)
 ```
+
+### Module Integration
+
+The backend now uses the new modular structure:
+
+- **Q1 (Indexer)**: `DocumentIndexer` for building the index
+- **Q2 (Retriever)**: `DocumentRetriever` for document search
+- **Q3 (QA System)**: `QASystem` for answering questions with LLM
+- **Q5 (Chatbot)**: `RAGChatbot` for conversational interface
+
+This ensures the backend uses the same code as the CLI, maintaining consistency.
 
 ## CORS
 

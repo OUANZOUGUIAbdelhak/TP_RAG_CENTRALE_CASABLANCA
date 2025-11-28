@@ -3,11 +3,17 @@ FastAPI Backend for RAG System
 Handles document management, RAG operations, and chat sessions
 """
 
+# Disable PostHog telemetry (prevents timeout errors)
+import os
+os.environ["LLAMA_TELEMETRY_DISABLED"] = "1"
+os.environ["DO_NOT_TRACK"] = "1"
+
 from fastapi import FastAPI, File, UploadFile, HTTPException, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
+from contextlib import asynccontextmanager
 import os
 import sys
 import shutil
@@ -16,29 +22,16 @@ import json
 import yaml
 from pathlib import Path
 from datetime import datetime
+import socket
 
 # Add src to path (we're in src/backend/, so go up one level to src/)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-# Import the new modular RAG system
-from rag_system import RAGSystem, create_rag_system_from_config
-from Chatbot import RAGChatbot
-
-# Initialize FastAPI
-app = FastAPI(
-    title="RAG System API",
-    description="Backend API for Retrieval Augmented Generation System",
-    version="1.0.0"
-)
-
-# CORS middleware for React
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React dev servers
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Import from new modular structure
+from indexer import DocumentIndexer
+from retriever import DocumentRetriever
+from qa_system import QASystem
+from chatbot import RAGChatbot
 
 # Load configuration
 def load_config():
@@ -75,8 +68,52 @@ VECTORSTORE_DIR.mkdir(exist_ok=True)
 SESSIONS_DIR.mkdir(exist_ok=True)
 
 # Global instances
-rag_system = None
+indexer = None
+retriever = None
+qa_system = None
 chatbot_instances = {}  # session_id -> chatbot instance
+
+# ============================================================================
+# Lifespan Events
+# ============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Handle startup and shutdown events"""
+    # Startup
+    print("🚀 Starting RAG System API...")
+    print(f"📁 Data directory: {DATA_DIR.absolute()}")
+    print(f"🗄️  Vector store: {VECTORSTORE_DIR.absolute()}")
+    
+    # Try to initialize RAG system if index exists
+    if initialize_rag_system():
+        print("✅ RAG System initialized")
+    else:
+        print("⚠️  RAG System not initialized - build index first")
+    
+    print("✅ API Server ready!")
+    
+    yield
+    
+    # Shutdown (if needed)
+    # Cleanup can be added here if necessary
+
+# Initialize FastAPI with lifespan
+app = FastAPI(
+    title="RAG System API",
+    description="Backend API for Retrieval Augmented Generation System",
+    version="1.0.0",
+    lifespan=lifespan
+)
+
+# CORS middleware for React
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://localhost:5173"],  # React dev servers
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ============================================================================
 # Pydantic Models
@@ -153,45 +190,62 @@ def get_all_documents() -> List[Path]:
 
 def initialize_rag_system():
     """Initialize or reinitialize RAG system"""
-    global rag_system
+    global retriever, qa_system
     
     if not VECTORSTORE_DIR.exists() or not any(VECTORSTORE_DIR.iterdir()):
         return False
     
     try:
-        rag_system = create_rag_system_from_config("Config.yaml")
-        # Initialize components and try to load existing index
-        rag_system.initialize_components()
-        if rag_system.load_index():
-            return True
-        return False
+        # Load config to get Groq settings
+        config = load_config()
+        groq_config = config.get('groq', {})
+        groq_api_key = groq_config.get('api_key')
+        groq_model = groq_config.get('model', 'llama-3.3-70b-versatile')
+        
+        # Initialize retriever
+        retriever = DocumentRetriever(
+            vectorstore_dir=str(VECTORSTORE_DIR),
+            embedding_model_name=EMBEDDING_MODEL
+        )
+        
+        # Initialize QA system with Groq config
+        qa_system = QASystem(
+            vectorstore_dir=str(VECTORSTORE_DIR),
+            embedding_model_name=EMBEDDING_MODEL,
+            groq_api_key=groq_api_key,
+            groq_model=groq_model
+        )
+        
+        return True
     except Exception as e:
         print(f"Error initializing RAG system: {e}")
         return False
 
 def get_or_create_chatbot(session_id: str) -> RAGChatbot:
     """Get existing chatbot or create new one for session"""
-    global rag_system
+    global qa_system
     
     # Ensure RAG system is initialized
-    if not rag_system:
+    if not qa_system:
         if not initialize_rag_system():
             raise HTTPException(
                 status_code=400,
                 detail="Index not built. Build index first."
             )
     
-    # Ensure QA system is available for chatbot
-    if not rag_system.qa_system:
-        raise HTTPException(
-            status_code=400,
-            detail="QA system not initialized. Build index first."
-        )
-    
     if session_id not in chatbot_instances:
+        # Load config to get Groq settings
+        config = load_config()
+        groq_config = config.get('groq', {})
+        groq_api_key = groq_config.get('api_key')
+        groq_model = groq_config.get('model', 'llama-3.3-70b-versatile')
+        
         chatbot_instances[session_id] = RAGChatbot(
-            qa_system=rag_system.qa_system,
-            max_history=10
+            vectorstore_dir=str(VECTORSTORE_DIR),
+            embedding_model_name=EMBEDDING_MODEL,
+            max_history=10,
+            groq_api_key=groq_api_key,
+            groq_model=groq_model
         )
     return chatbot_instances[session_id]
 
@@ -232,7 +286,7 @@ async def health_check():
         "status": "healthy",
         "index_built": index_exists,
         "document_count": doc_count,
-        "rag_system_ready": rag_system is not None
+        "rag_system_ready": qa_system is not None
     }
 
 # ============================================================================
@@ -391,12 +445,32 @@ async def build_index(request: BuildIndexRequest = None):
                 detail="No documents found. Upload documents first."
             )
         
-        # Build index using the new modular RAG system
-        global rag_system
+        # Build index using new modular structure
+        global indexer, retriever, qa_system
         
-        rag_system = create_rag_system_from_config("Config.yaml")
-        rag_system.initialize_components()
-        rag_system.build_index()
+        # Load config
+        config = load_config()
+        
+        # Get Groq API key for advanced RAG pipeline (if available)
+        groq_config = config.get('groq', {})
+        groq_api_key = groq_config.get('api_key')
+        groq_model = groq_config.get('model', 'llama-3.3-70b-versatile')
+        
+        indexer = DocumentIndexer(
+            data_dir=str(DATA_DIR),
+            vectorstore_dir=str(VECTORSTORE_DIR),
+            embedding_model_name=EMBEDDING_MODEL,
+            chunk_size=config.get('document_processing', {}).get('chunk_size', 1024),
+            chunk_overlap=config.get('document_processing', {}).get('chunk_overlap', 128),
+            groq_api_key=groq_api_key,
+            groq_model=groq_model,
+            use_advanced_rag=True  # Enable advanced RAG pipeline
+        )
+        
+        indexer.build_index()
+        
+        # Initialize retriever and QA system after building
+        initialize_rag_system()
         
         return {
             "status": "success",
@@ -406,6 +480,9 @@ async def build_index(request: BuildIndexRequest = None):
         }
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error building index: {error_details}")
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.delete("/api/vectorstore")
@@ -417,11 +494,13 @@ async def delete_vectorstore():
         import gc
         
         # First, close all ChromaDB connections by clearing global instances
-        global rag_system, chatbot_instances
+        global indexer, retriever, qa_system, chatbot_instances
         
-        # Clear chatbot instances
+        # Clear all instances
         chatbot_instances = {}
-        rag_system = None
+        indexer = None
+        retriever = None
+        qa_system = None
         
         # Force garbage collection to release file handles
         gc.collect()
@@ -504,16 +583,15 @@ async def search_documents(
                 detail="Index not built. Build index first."
             )
         
-        global rag_system
-        if not rag_system:
-            rag_system = create_rag_system_from_config("Config.yaml")
-            if not rag_system.load_index():
+        global retriever
+        if not retriever:
+            if not initialize_rag_system():
                 raise HTTPException(
                     status_code=400,
                     detail="Index not built. Build index first."
                 )
         
-        results = rag_system.search_documents(query, k=k)
+        results = retriever.search(query, k=k)
         
         return {
             "status": "success",
@@ -523,6 +601,9 @@ async def search_documents(
         }
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"Error searching documents: {error_details}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
@@ -552,8 +633,12 @@ async def chat(message: ChatMessage):
         # Get response from chatbot
         answer = chatbot.chat(message.message, verbose=False)
         
-        # Query again to get sources and confidence
-        result = chatbot.rag_system.query(message.message)
+        # Query QA system to get sources and confidence
+        global qa_system
+        if not qa_system:
+            initialize_rag_system()
+        
+        result = qa_system.answer(message.message)
         confidence = result.get('confidence', 0.0)
         sources = result.get('sources', [])
         
@@ -666,23 +751,26 @@ async def delete_session(session_id: str):
         raise HTTPException(status_code=500, detail=str(e))
 
 # ============================================================================
-# Initialize on startup
+# Helper Functions for Server Startup
 # ============================================================================
 
-@app.on_event("startup")
-async def startup_event():
-    """Initialize system on startup"""
-    print("🚀 Starting RAG System API...")
-    print(f"📁 Data directory: {DATA_DIR.absolute()}")
-    print(f"🗄️  Vector store: {VECTORSTORE_DIR.absolute()}")
-    
-    # Try to initialize RAG system if index exists
-    if initialize_rag_system():
-        print("✅ RAG System initialized")
-    else:
-        print("⚠️  RAG System not initialized - build index first")
-    
-    print("✅ API Server ready!")
+def is_port_available(host: str, port: int) -> bool:
+    """Check if a port is available"""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1)
+            result = s.connect_ex((host, port))
+            return result != 0
+    except:
+        return False
+
+def find_available_port(start_port: int = 8000, max_attempts: int = 10) -> int:
+    """Find an available port starting from start_port"""
+    for i in range(max_attempts):
+        port = start_port + i
+        if is_port_available("127.0.0.1", port):
+            return port
+    return None
 
 if __name__ == "__main__":
     import uvicorn
@@ -690,9 +778,24 @@ if __name__ == "__main__":
     print("\n" + "="*60)
     print("🚀 RAG System Backend API")
     print("="*60)
-    print("\n📡 Starting server at: http://127.0.0.1:8000")
-    print("📚 API Docs: http://127.0.0.1:8000/docs")
+    
+    # Check if default port is available
+    default_port = 8000
+    port = default_port
+    
+    if not is_port_available("127.0.0.1", default_port):
+        print(f"⚠️  Port {default_port} is already in use. Searching for alternative port...")
+        available_port = find_available_port(default_port)
+        if available_port:
+            port = available_port
+            print(f"✅ Found available port: {port}")
+        else:
+            print(f"❌ Could not find an available port. Please free up port {default_port} or specify a different port.")
+            sys.exit(1)
+    
+    print(f"\n📡 Starting server at: http://127.0.0.1:{port}")
+    print(f"📚 API Docs: http://127.0.0.1:{port}/docs")
     print("\n💡 Press Ctrl+C to stop\n")
     
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
 
