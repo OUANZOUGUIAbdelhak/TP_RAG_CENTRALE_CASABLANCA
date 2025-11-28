@@ -1,38 +1,74 @@
 """
-Question-Answer System - Q3: Système de question-réponse basé sur un LLM
-Handles LLM-based question answering using retrieved context.
+Q3: Question-Answering System with LLM
+=======================================
+This module implements the Q&A system using an LLM.
+
+Features:
+- Uses retrieved documents from vector database as context
+- Employs an open-source LLM (via Groq API)
+- Custom prompt template for optimal answer generation
+- Synthesizes information from multiple sources
 """
 
+import os
+# Disable PostHog telemetry (prevents timeout errors)
+os.environ["LLAMA_TELEMETRY_DISABLED"] = "1"
+os.environ["DO_NOT_TRACK"] = "1"
+
+from pathlib import Path
 from typing import Dict, Any, Optional
-from llama_index.core import VectorStoreIndex
+from llama_index.core import VectorStoreIndex, StorageContext
 from llama_index.core.prompts import PromptTemplate
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.groq import Groq
+from llama_index.vector_stores.chroma import ChromaVectorStore
+import chromadb
+import yaml
 
 
 class QASystem:
     """
-    Q3: Question-Answer system using LLM with retrieved context.
-    Creates optimized prompts and synthesizes answers from document context.
+    Q3: Question-Answering system using LLM with RAG.
+    
+    This class combines document retrieval with LLM-based answer generation.
+    It uses:
+    - Retrieved paragraphs from the vector database as context
+    - An open-source LLM (Groq) to synthesize answers
+    - A custom prompt template optimized for RAG
     """
     
-    def __init__(self, 
-                 index: VectorStoreIndex,
+    def __init__(self,
+                 vectorstore_dir: str = "./vectorstore",
+                 embedding_model_name: str = "BAAI/bge-small-en-v1.5",
+                 collection_name: str = "rag_collection",
                  groq_api_key: Optional[str] = None,
                  groq_model: str = "llama-3.3-70b-versatile",
-                 similarity_top_k: int = 5):
+                 use_gemini: bool = False):
         """
-        Initialize the QA system.
+        Initialize the Q&A system.
         
         Args:
-            index: VectorStoreIndex for document retrieval
-            groq_api_key: Groq API key for LLM
-            groq_model: Groq model name
-            similarity_top_k: Number of documents to retrieve for context
+            vectorstore_dir: Directory containing the ChromaDB vector store
+            embedding_model_name: HuggingFace embedding model name
+            collection_name: ChromaDB collection name
+            groq_api_key: Groq API key for LLM (if None, loads from config)
+            groq_model: Groq model name to use
+            use_gemini: Whether to use Gemini instead of Groq (not implemented)
         """
-        self.index = index
-        self.similarity_top_k = similarity_top_k
+        self.vectorstore_dir = Path(vectorstore_dir)
+        self.embedding_model_name = embedding_model_name
+        self.collection_name = collection_name
         
-        # Initialize LLM (Groq)
+        # Load config to get API key if not provided
+        if groq_api_key is None:
+            groq_api_key = self._load_groq_api_key()
+        
+        # Initialize embedding model
+        print(f"🔧 Loading embedding model: {embedding_model_name}")
+        self.embed_model = HuggingFaceEmbedding(model_name=embedding_model_name)
+        print(f"✅ Embedding model loaded")
+        
+        # Initialize LLM (Groq - open-source models)
         self.llm = None
         if groq_api_key:
             try:
@@ -43,237 +79,230 @@ class QASystem:
                 print(f"⚠️  Failed to initialize Groq LLM: {e}")
                 self.llm = None
         else:
-            print("⚠️  No Groq API key provided. QA system will work in retrieval-only mode.")
+            print("⚠️  No Groq API key found. LLM queries will not work.")
         
-        # Create optimized prompt template
-        self.qa_prompt_template = self._create_prompt_template()
+        # Load index
+        self.index = self._load_index()
         
-        # Initialize query engine
+        # Create query engine with custom prompt
         self.query_engine = None
-        self._setup_query_engine()
+        if self.llm:
+            self.query_engine = self._create_query_engine()
     
-    def _create_prompt_template(self) -> PromptTemplate:
-        """
-        Create an optimized prompt template for the LLM.
+    def _load_groq_api_key(self) -> Optional[str]:
+        """Load Groq API key from Config.yaml."""
+        try:
+            # Try multiple possible paths for Config.yaml
+            config_paths = [
+                Path(__file__).parent.parent / "Config.yaml",  # src/../Config.yaml
+                Path(__file__).parent.parent.parent / "Config.yaml",  # src/../../Config.yaml
+                Path("Config.yaml"),  # Current directory
+                Path(__file__).parent / "Config.yaml",  # src/Config.yaml (unlikely)
+            ]
+            
+            for config_path in config_paths:
+                abs_path = config_path.resolve()
+                if abs_path.exists():
+                    with open(abs_path, 'r', encoding='utf-8') as f:
+                        config = yaml.safe_load(f)
+                    api_key = config.get('groq', {}).get('api_key')
+                    if api_key:
+                        return api_key
+        except Exception as e:
+            print(f"⚠️  Could not load Groq API key from config: {e}")
+        return None
+    
+    def _load_index(self) -> VectorStoreIndex:
+        """Load the vector index from ChromaDB."""
+        if not self.vectorstore_dir.exists():
+            raise ValueError(f"Vector store not found: {self.vectorstore_dir}. Please build index first.")
         
-        Returns:
-            PromptTemplate instance with instructions for the LLM
-        """
-        template_text = """
-                        Tu es un assistant IA spécialisé dans l'analyse de documents. 
-                        Ton rôle est de répondre aux questions en te basant UNIQUEMENT sur le contexte fourni.
-
-                        CONTEXTE DOCUMENTAIRE:
-                        ---------------------
-                        {context_str}
-                        ---------------------
-
-                        INSTRUCTIONS:
-                        1. Réponds à la question en français de manière claire et structurée
-                        2. Base-toi EXCLUSIVEMENT sur les informations du contexte fourni
-                        3. Si le contexte ne contient pas assez d'informations, dis-le explicitement
-                        4. Cite les sources quand c'est pertinent
-                        5. Structure ta réponse avec des paragraphes et des listes si nécessaire
-                        6. Sois précis et factuel
-
-                        QUESTION: {query_str}
-
-                        RÉPONSE:
-                    """
-                                
-        return PromptTemplate(template_text)
+        print(f"📂 Loading index from {self.vectorstore_dir}...")
+        
+        chroma_client = chromadb.PersistentClient(path=str(self.vectorstore_dir))
+        chroma_collection = chroma_client.get_collection(name=self.collection_name)
+        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+        
+        index = VectorStoreIndex.from_vector_store(
+            vector_store=vector_store,
+            embed_model=self.embed_model
+        )
+        
+        print(f"✅ Index loaded successfully")
+        return index
     
-    def _setup_query_engine(self):
+    def _create_query_engine(self):
         """
-        Setup the query engine with LLM and prompt template.
+        Q3: Create query engine with custom prompt template.
+        
+        The prompt template is optimized for RAG and includes:
+        - Context from retrieved documents
+        - Instructions for synthesizing information
+        - Guidelines for handling insufficient context
         """
-        if not self.llm:
-            print("⚠️  No LLM available. Query engine will work in retrieval-only mode.")
-            return
+        # Custom prompt template for Q3
+        # This template ensures the LLM:
+        # 1. Uses only the provided context (retrieved documents)
+        # 2. Uses metadata (titles, questions) internally for better understanding
+        # 3. Provides well-formatted, ChatGPT-style responses
+        qa_prompt_template = PromptTemplate(
+            "You are a helpful assistant that provides clear, well-structured answers based on the provided context.\n\n"
+            "Context information from the knowledge base:\n"
+            "---------------------\n"
+            "{context_str}\n"
+            "---------------------\n\n"
+            "IMPORTANT INSTRUCTIONS:\n\n"
+            "📋 CONTENT GUIDELINES:\n"
+            "• Use ONLY the context information above to answer the question\n"
+            "• Use metadata (titles, questions answered) internally to better understand the context, but don't explicitly mention them as metadata fields\n"
+            "• Synthesize information from multiple sources if needed\n"
+            "• If the context does not contain enough information, say so explicitly\n"
+            "• Do not use prior knowledge outside the provided context\n\n"
+            "✨ FORMATTING REQUIREMENTS:\n"
+            "• Use clear headings with ## or ### for main sections\n"
+            "• Use bullet points (• or -) for lists and key points\n"
+            "• Organize content into logical sections\n"
+            "• Add relevant emojis to improve readability (✨ 📝 📦 💡 🔍 ✅ ⚠️ 🎯 📊 🔗 etc.)\n"
+            "• Use proper spacing between sections\n"
+            "• Make the response engaging, user-friendly, and visually appealing\n"
+            "• Structure longer answers with:\n"
+            "  - An introduction/overview\n"
+            "  - Main points in organized sections\n"
+            "  - A brief summary if appropriate\n\n"
+            "🚫 DO NOT:\n"
+            "• Include metadata fields like 'title' or 'questions_answered' as separate items\n"
+            "• Show raw metadata in your response\n"
+            "• Use overly technical language unless necessary\n\n"
+            "Question: {query_str}\n\n"
+            "Answer (formatted nicely with headings, bullet points, emojis, and clear structure): "
+        )
         
         try:
-            print(f"🤖 Setting up query engine...")
-            self.query_engine = self.index.as_query_engine(
+            query_engine = self.index.as_query_engine(
                 llm=self.llm,
-                similarity_top_k=self.similarity_top_k,
-                response_mode="compact",
-                text_qa_template=self.qa_prompt_template
+                similarity_top_k=5,  # Retrieve top 5 most relevant chunks
+                response_mode="compact",  # Compact response mode for efficiency
+                text_qa_template=qa_prompt_template  # Our custom prompt
             )
-            print(f"✅ Query engine ready with custom prompt template")
+            print(f"✅ Query engine created with custom prompt template")
+            return query_engine
         except TypeError:
             # Fallback if text_qa_template parameter doesn't work
-            print(f"⚠️  Using fallback query engine configuration...")
-            try:
-                self.query_engine = self.index.as_query_engine(
-                    llm=self.llm,
-                    similarity_top_k=self.similarity_top_k,
-                    response_mode="compact"
-                )
-                print(f"✅ Query engine ready (using default prompt)")
-            except Exception as e:
-                print(f"❌ Failed to create query engine: {e}")
-                self.query_engine = None
+            query_engine = self.index.as_query_engine(
+                llm=self.llm,
+                similarity_top_k=5,
+                response_mode="compact"
+            )
+            print(f"✅ Query engine created (using default prompt)")
+            return query_engine
     
-    def answer_question(self, question: str) -> Dict[str, Any]:
+    def answer(self, question: str) -> Dict[str, Any]:
         """
-        Answer a question using the LLM and retrieved context.
+        Q3: Answer a question using RAG (Retrieval + LLM generation).
+        
+        Process:
+        1. Retrieve relevant paragraphs from vector database
+        2. Provide context to LLM via custom prompt
+        3. LLM synthesizes information and generates answer
         
         Args:
             question: User's question
             
         Returns:
-            Dictionary with answer, sources, and metadata
+            Dictionary containing:
+                - answer: Generated answer from LLM
+                - sources: List of source documents with scores
+                - confidence: Overall confidence score
         """
         if not self.query_engine:
-            # Fallback: retrieve documents without LLM
-            return self._retrieve_only_answer(question)
+            return {
+                "answer": "LLM not available. Please configure Groq API key in Config.yaml",
+                "sources": [],
+                "confidence": 0.0
+            }
+        
+        print(f"🤔 Processing question: {question}")
         
         try:
-            print(f"🔍 Processing question: {question[:100]}...")
-            
-            # Query with LLM
+            # Query the engine (retrieves context + generates answer)
             response = self.query_engine.query(question)
             
-            # Extract the answer
+            # Extract answer (LLM-generated response)
             if hasattr(response, 'response'):
                 answer = str(response.response).strip()
             else:
                 answer = str(response).strip()
             
-            # Extract source nodes
+            # Extract source documents (metadata used internally, not exposed in response)
+            source_nodes = getattr(response, 'source_nodes', [])
             sources = []
-            if hasattr(response, 'source_nodes'):
-                for node in response.source_nodes:
-                    source_path = node.metadata.get('file_name', 'Unknown')
-                    if 'data' in source_path:
-                        source_path = source_path.replace('data\\', '').replace('data/', '')
-                    
-                    score = getattr(node, 'score', 0.0)
-                    similarity = max(0.0, min(1.0, 1.0 - score))
-                    
-                    sources.append({
-                        "source": source_path,
-                        "page": node.metadata.get('page_label', 'N/A'),
-                        "content": node.text[:200] + "..." if len(node.text) > 200 else node.text,
-                        "score": round(score, 4),
-                        "similarity": round(similarity, 4),
-                        "similarity_percent": round(similarity * 100, 1)
-                    })
+            for node in source_nodes[:5]:
+                source_path = node.metadata.get('file_name', 'Unknown')
+                if 'data' in source_path:
+                    source_path = source_path.replace('data\\', '').replace('data/', '')
+                
+                score = getattr(node, 'score', 0.0)
+                similarity = max(0.0, min(1.0, 1.0 - score))
+                
+                # Note: Metadata (title, questions_answered) is available in node.metadata
+                # and used by the LLM for context, but we don't expose it in the response
+                # The LLM can incorporate this information naturally into the answer content
+                
+                source = {
+                    "source": source_path,
+                    "page": node.metadata.get('page_label', 'N/A'),
+                    "content": node.text[:200] + "..." if len(node.text) > 200 else node.text,
+                    "score": round(score, 4),
+                    "similarity": round(similarity, 4),
+                    "similarity_percent": round(similarity * 100, 1)
+                }
+                
+                # Metadata is NOT added to the response - it's used internally only
+                sources.append(source)
             
-            # Calculate confidence
+            # Calculate confidence from source similarities
             confidence = sum(s["similarity"] for s in sources) / len(sources) if sources else 0.0
             
             return {
-                "question": question,
                 "answer": answer,
                 "sources": sources,
-                "confidence": round(confidence, 3),
-                "method": "llm_synthesis"
+                "confidence": round(confidence, 3)
             }
             
         except Exception as e:
             print(f"❌ Error processing question: {e}")
             return {
-                "question": question,
-                "answer": f"Erreur lors du traitement de la question: {str(e)}",
+                "answer": f"Error: {str(e)}",
                 "sources": [],
-                "confidence": 0.0,
-                "method": "error"
+                "confidence": 0.0
             }
     
-    def _retrieve_only_answer(self, question: str) -> Dict[str, Any]:
+    def answer_with_details(self, question: str):
         """
-        Fallback method: retrieve documents without LLM synthesis.
+        Q3: Answer a question and print detailed results.
         
         Args:
             question: User's question
-            
-        Returns:
-            Dictionary with retrieved content and sources
         """
-        print(f"🔍 Retrieving documents for: {question[:100]}...")
+        result = self.answer(question)
         
-        retriever = self.index.as_retriever(similarity_top_k=self.similarity_top_k)
-        nodes = retriever.retrieve(question)
+        print("\n" + "="*80)
+        print("💡 ANSWER")
+        print("="*80 + "\n")
+        print(result["answer"])
         
-        sources = []
-        for node in nodes:
-            source_path = node.metadata.get('file_name', 'Unknown')
-            if 'data' in source_path:
-                source_path = source_path.replace('data\\', '').replace('data/', '')
+        if result["sources"]:
+            print("\n" + "="*80)
+            print("📚 SOURCES")
+            print("="*80 + "\n")
             
-            score = getattr(node, 'score', 0.0)
-            similarity = max(0.0, min(1.0, 1.0 - score))
+            for i, source in enumerate(result["sources"], 1):
+                print(f"Source #{i}: {source['source']} (Page: {source['page']})")
+                print(f"Similarity: {source['similarity_percent']}%")
+                print(f"Content: {source['content']}")
+                print("-"*80 + "\n")
+                # Note: Metadata (title, questions_answered) is used internally by the LLM
+                # but not shown in the response to keep it clean and user-friendly
             
-            sources.append({
-                "source": source_path,
-                "page": node.metadata.get('page_label', 'N/A'),
-                "content": node.text[:200] + "..." if len(node.text) > 200 else node.text,
-                "score": round(score, 4),
-                "similarity": round(similarity, 4),
-                "similarity_percent": round(similarity * 100, 1)
-            })
-        
-        # Simple answer from top result
-        answer = f"Contenu le plus pertinent trouvé:\n\n{nodes[0].text}" if nodes else "Aucun document pertinent trouvé."
-        
-        confidence = sources[0]["similarity"] if sources else 0.0
-        
-        return {
-            "question": question,
-            "answer": answer,
-            "sources": sources,
-            "confidence": confidence,
-            "method": "retrieval_only"
-        }
-    
-    def batch_questions(self, questions: list) -> Dict[str, Any]:
-        """
-        Process multiple questions in batch.
-        
-        Args:
-            questions: List of questions to process
-            
-        Returns:
-            Dictionary with all results
-        """
-        print(f"\n🧪 Processing {len(questions)} questions...")
-        
-        results = {}
-        for i, question in enumerate(questions, 1):
-            print(f"\n--- Question {i}/{len(questions)} ---")
-            result = self.answer_question(question)
-            results[question] = result
-            
-            print(f"Q: {question}")
-            print(f"A: {result['answer'][:100]}...")
-            print(f"Confidence: {result['confidence']:.1%}")
-            print(f"Sources: {len(result['sources'])}")
-        
-        return results
-    
-    def print_qa_result(self, result: Dict[str, Any]):
-        """
-        Print formatted QA result.
-        
-        Args:
-            result: Result dictionary from answer_question
-        """
-        print(f"\n" + "="*80)
-        print(f"QUESTION: {result['question']}")
-        print("="*80)
-        
-        print(f"\nRÉPONSE:")
-        print(f"{result['answer']}")
-        
-        print(f"\nMÉTADONNÉES:")
-        print(f"Confiance: {result['confidence']:.1%}")
-        print(f"Méthode: {result['method']}")
-        print(f"Sources utilisées: {len(result['sources'])}")
-        
-        if result['sources']:
-            print(f"\nSOURCES:")
-            for i, source in enumerate(result['sources'], 1):
-                print(f"{i}. {source['source']} (Page {source['page']}) - Similarité: {source['similarity_percent']}%")
-        
-        print(f"\n" + "="*80)
+            print(f"🎯 Overall Confidence: {result['confidence']*100:.1f}%")
+
