@@ -1,175 +1,203 @@
 """
-Document Retriever - Q2: Recherche documentaire dans la base vectorielle
-Handles querying the vector database and returning relevant documents with scores.
+Q2: Document Retrieval System
+==============================
+This module handles document retrieval from the vector database.
+
+Features:
+- Query the vector database with user queries
+- Return the most relevant documents with similarity scores
+- Support for configurable number of results (top-k)
 """
 
-from typing import List, Dict, Any, Optional
-from llama_index.core import VectorStoreIndex
+from pathlib import Path
+from typing import List, Dict, Any
+from llama_index.core import VectorStoreIndex, StorageContext
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.vector_stores.chroma import ChromaVectorStore
+import chromadb
 
 
 class DocumentRetriever:
     """
     Q2: Document retrieval system for querying the vector database.
-    Returns relevant documents with affinity scores.
+    
+    This class allows searching for relevant documents based on user queries,
+    returning both document content and similarity scores (affinity scores).
     """
     
-    def __init__(self, index: VectorStoreIndex):
+    def __init__(self,
+                 vectorstore_dir: str = "./vectorstore",
+                 embedding_model_name: str = "BAAI/bge-small-en-v1.5",
+                 collection_name: str = "rag_collection"):
         """
         Initialize the document retriever.
         
         Args:
-            index: VectorStoreIndex instance from the indexer
+            vectorstore_dir: Directory containing the ChromaDB vector store
+            embedding_model_name: HuggingFace embedding model (must match indexer)
+            collection_name: Name of the ChromaDB collection
         """
-        self.index = index
-        self.retriever = None
-    
-    def setup_retriever(self, similarity_top_k: int = 5):
-        """
-        Setup the retriever with specified parameters.
+        self.vectorstore_dir = Path(vectorstore_dir)
+        self.embedding_model_name = embedding_model_name
+        self.collection_name = collection_name
         
-        Args:
-            similarity_top_k: Number of most similar documents to retrieve
-        """
-        self.retriever = self.index.as_retriever(similarity_top_k=similarity_top_k)
-        print(f"🔍 Retriever configured to return top {similarity_top_k} documents")
+        # Initialize embedding model (must match the one used for indexing)
+        print(f"🔧 Loading embedding model: {embedding_model_name}")
+        self.embed_model = HuggingFaceEmbedding(model_name=embedding_model_name)
+        print(f"✅ Embedding model loaded")
+        
+        # Initialize ChromaDB client
+        if not self.vectorstore_dir.exists():
+            raise ValueError(f"Vector store not found: {vectorstore_dir}. Please build index first.")
+        
+        self.chroma_client = chromadb.PersistentClient(path=str(self.vectorstore_dir))
+        
+        # Load the index
+        self.index = self._load_index()
     
-    def search_documents(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+    def _load_index(self) -> VectorStoreIndex:
         """
-        Query the vector database and return relevant documents with scores.
+        Load the vector index from ChromaDB.
+        
+        Returns:
+            VectorStoreIndex: The loaded index
+        """
+        print(f"📂 Loading index from {self.vectorstore_dir}...")
+        
+        # Get the ChromaDB collection
+        chroma_collection = self.chroma_client.get_collection(
+            name=self.collection_name
+        )
+        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+        
+        # Load index from vector store
+        index = VectorStoreIndex.from_vector_store(
+            vector_store=vector_store,
+            embed_model=self.embed_model
+        )
+        
+        print(f"✅ Index loaded successfully")
+        return index
+    
+    def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+        """
+        Q2: Search for relevant documents in the vector database.
+        
+        This function queries the vector database and returns:
+        - A list of the most relevant documents
+        - Affinity scores (similarity scores) for each document
         
         Args:
             query: User's search query
-            k: Number of documents to retrieve
+            k: Number of top results to return
             
         Returns:
-            List of documents with metadata and affinity scores
+            List of dictionaries containing:
+                - rank: Position in results (1-indexed)
+                - content: Document text content
+                - source: Source file name
+                - page: Page number (if available)
+                - score: Raw distance score (lower = better)
+                - similarity: Similarity score (0-1, higher = better)
+                - similarity_percent: Similarity as percentage
+                - metadata: Additional metadata
         """
-        if not self.retriever or self.retriever.similarity_top_k != k:
-            self.setup_retriever(similarity_top_k=k)
-        
         print(f"🔍 Searching for: '{query}'")
+        print(f"📊 Retrieving top {k} results...\n")
         
-        # Retrieve nodes from vector database
-        nodes = self.retriever.retrieve(query)
+        # Create retriever from index
+        retriever = self.index.as_retriever(similarity_top_k=k)
         
-        # Format results with scores and metadata
+        # Retrieve relevant nodes (chunks)
+        nodes = retriever.retrieve(query)
+        
+        # Format results
         results = []
         for i, node in enumerate(nodes, 1):
-            # Extract source information
+            # Extract metadata
             source_path = node.metadata.get('file_name', 'Unknown')
+            # Clean up path (remove data/ prefix)
             if 'data' in source_path:
                 source_path = source_path.replace('data\\', '').replace('data/', '')
             
-            # Calculate similarity scores
-            # Note: LlamaIndex returns distance scores (lower = more similar)
-            # We convert to similarity scores (higher = more similar)
-            distance_score = getattr(node, 'score', 0.0)
-            similarity_score = max(0.0, min(1.0, 1.0 - distance_score))
+            # Calculate similarity score
+            # LlamaIndex returns distance scores (lower = more similar)
+            # We convert to similarity (0-1, higher = more similar)
+            raw_score = getattr(node, 'score', 0.0)
+            similarity = max(0.0, min(1.0, 1.0 - raw_score))
+            
+            # Extract advanced metadata if available
+            title = node.metadata.get('title', None)
+            questions_answered = node.metadata.get('questions_this_excerpt_can_answer', None)
             
             result = {
                 "rank": i,
                 "content": node.text,
                 "source": source_path,
                 "page": node.metadata.get('page_label', 'N/A'),
-                "distance_score": round(distance_score, 4),
-                "similarity_score": round(similarity_score, 4),
-                "similarity_percent": round(similarity_score * 100, 1),
+                "score": round(raw_score, 4),  # Raw distance score
+                "similarity": round(similarity, 4),  # Converted similarity
+                "similarity_percent": round(similarity * 100, 1),
                 "metadata": node.metadata
             }
             
+            # Add advanced RAG metadata if available
+            if title:
+                result["title"] = title
+            if questions_answered:
+                result["questions_answered"] = questions_answered
+            
             results.append(result)
         
-        print(f"✅ Found {len(results)} relevant documents")
         return results
     
-    def get_top_documents(self, query: str, k: int = 3) -> Dict[str, Any]:
+    def search_and_print_results(self, query: str, k: int = 5):
         """
-        Get top relevant documents with summary statistics.
+        Q2: Search and print results in a formatted way.
+        
+        This is a convenience method that searches and displays results
+        in a user-friendly format.
         
         Args:
-            query: Search query
-            k: Number of top documents
-            
-        Returns:
-            Dictionary with documents and summary stats
+            query: User's search query
+            k: Number of results to return
         """
-        documents = self.search_documents(query, k)
-        
-        if not documents:
-            return {
-                "query": query,
-                "documents": [],
-                "count": 0,
-                "avg_similarity": 0.0,
-                "max_similarity": 0.0
-            }
-        
-        # Calculate summary statistics
-        similarities = [doc["similarity_score"] for doc in documents]
-        avg_similarity = sum(similarities) / len(similarities)
-        max_similarity = max(similarities)
-        
-        return {
-            "query": query,
-            "documents": documents,
-            "count": len(documents),
-            "avg_similarity": round(avg_similarity, 3),
-            "max_similarity": round(max_similarity, 3)
-        }
-    
-    def test_queries(self, test_queries: List[str], k: int = 3) -> Dict[str, Any]:
-        """
-        Test multiple queries and return results.
-        
-        Args:
-            test_queries: List of queries to test
-            k: Number of documents per query
-            
-        Returns:
-            Dictionary with all test results
-        """
-        print(f"\n🧪 Testing {len(test_queries)} queries...")
-        
-        results = {}
-        for i, query in enumerate(test_queries, 1):
-            print(f"\n--- Test {i}/{len(test_queries)} ---")
-            result = self.get_top_documents(query, k)
-            results[query] = result
-            
-            print(f"Query: {query}")
-            print(f"Found: {result['count']} documents")
-            print(f"Avg similarity: {result['avg_similarity']:.1%}")
-            print(f"Max similarity: {result['max_similarity']:.1%}")
-        
-        return results
-    
-    def print_search_results(self, query: str, k: int = 5, show_content: bool = True):
-        """
-        Print formatted search results for debugging.
-        
-        Args:
-            query: Search query
-            k: Number of results
-            show_content: Whether to show document content
-        """
-        results = self.search_documents(query, k)
-        
-        print(f"\n" + "="*80)
-        print(f"SEARCH RESULTS FOR: '{query}'")
-        print("="*80)
+        results = self.search(query, k=k)
         
         if not results:
-            print("No documents found.")
+            print("❌ No results found.")
             return
         
-        for doc in results:
-            print(f"\n📄 Rank {doc['rank']} - {doc['source']} (Page {doc['page']})")
-            print(f"   Similarity: {doc['similarity_percent']}% (Score: {doc['similarity_score']:.3f})")
-            
-            if show_content:
-                content = doc['content']
-                if len(content) > 200:
-                    content = content[:200] + "..."
-                print(f"   Content: {content}")
+        print("="*80)
+        print("📊 SEARCH RESULTS")
+        print("="*80 + "\n")
         
-        print(f"\n" + "="*80)
+        for result in results:
+            print(f"Rank #{result['rank']}")
+            print(f"Source: {result['source']} (Page: {result['page']})")
+            print(f"Similarity: {result['similarity_percent']}% (score: {result['score']})")
+            
+            # Show advanced metadata if available
+            if result.get('title'):
+                print(f"Title: {result['title']}")
+            if result.get('questions_answered'):
+                qa = result['questions_answered']
+                if isinstance(qa, str):
+                    print(f"Questions Answered: {qa}")
+                elif isinstance(qa, list):
+                    print(f"Questions Answered: {', '.join(qa)}")
+            
+            print(f"\nContent Preview:")
+            # Show first 300 characters
+            content = result['content']
+            if len(content) > 300:
+                print(f"{content[:300]}...")
+            else:
+                print(content)
+            print("\n" + "-"*80 + "\n")
+        
+        # Summary statistics
+        avg_similarity = sum(r['similarity'] for r in results) / len(results)
+        print(f"📈 Average Similarity: {avg_similarity*100:.1f}%")
+        print(f"📚 Total Results: {len(results)}")
+
