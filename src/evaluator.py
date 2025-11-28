@@ -1,398 +1,260 @@
 """
-RAG System Evaluator - Q4: Évaluation du système RAG/LLM
-Evaluates the relevance and quality of RAG system responses.
+Q4: RAG/LLM System Evaluation
+==============================
+This module implements evaluation mechanisms for the RAG system.
+
+Features:
+- Evaluate retrieval quality (relevance of retrieved documents)
+- Evaluate answer quality (LLM response quality)
+- Compute various metrics (precision, relevance, etc.)
+- End-to-end evaluation with test cases
 """
 
-import json
-from typing import Dict, List, Any, Optional
-from dataclasses import dataclass
-import statistics
+from typing import List, Dict, Any, Optional
+from pathlib import Path
+from llama_index.core import VectorStoreIndex
+from llama_index.embeddings.huggingface import HuggingFaceEmbedding
+from llama_index.vector_stores.chroma import ChromaVectorStore
+import chromadb
 
-
-@dataclass
-class EvaluationMetrics:
-    """Data class for evaluation metrics."""
-    relevance_score: float
-    completeness_score: float
-    accuracy_score: float
-    source_quality_score: float
-    overall_score: float
-    feedback: str
+# Handle both package and direct imports
+try:
+    from .qa_system import QASystem
+except ImportError:
+    from qa_system import QASystem
 
 
 class RAGEvaluator:
     """
-    Q4: RAG system evaluation with multiple metrics.
-    Evaluates response relevance, completeness, accuracy, and source quality.
+    Q4: Evaluation system for RAG/LLM performance.
+    
+    This class implements mechanisms to evaluate:
+    - Retrieval quality: Are the right documents being retrieved?
+    - Answer quality: Are the LLM answers relevant and accurate?
+    - Overall system performance
     """
     
-    def __init__(self):
-        """Initialize the RAG evaluator."""
-        self.evaluation_history = []
-    
-    def evaluate_response(self, 
-                         question: str,
-                         answer: str,
-                         sources: List[Dict],
-                         expected_answer: Optional[str] = None,
-                         ground_truth_sources: Optional[List[str]] = None) -> EvaluationMetrics:
+    def __init__(self,
+                 vectorstore_dir: str = "./vectorstore",
+                 embedding_model_name: str = "BAAI/bge-small-en-v1.5",
+                 collection_name: str = "rag_collection"):
         """
-        Evaluate a RAG system response using multiple metrics.
+        Initialize the evaluator.
         
         Args:
-            question: Original question
-            answer: Generated answer
-            sources: List of source documents used
-            expected_answer: Expected/reference answer (optional)
-            ground_truth_sources: Expected source documents (optional)
+            vectorstore_dir: Directory containing the ChromaDB vector store
+            embedding_model_name: HuggingFace embedding model name
+            collection_name: ChromaDB collection name
+        """
+        self.vectorstore_dir = Path(vectorstore_dir)
+        self.embedding_model_name = embedding_model_name
+        self.collection_name = collection_name
+        
+        # Initialize QA system for evaluation
+        self.qa_system = QASystem(
+            vectorstore_dir=str(vectorstore_dir),
+            embedding_model_name=embedding_model_name,
+            collection_name=collection_name
+        )
+        
+        # Load index for retrieval evaluation
+        self.embed_model = HuggingFaceEmbedding(model_name=embedding_model_name)
+        self.index = self._load_index()
+    
+    def _load_index(self) -> VectorStoreIndex:
+        """Load the vector index from ChromaDB."""
+        if not self.vectorstore_dir.exists():
+            raise ValueError(f"Vector store not found: {self.vectorstore_dir}")
+        
+        chroma_client = chromadb.PersistentClient(path=str(self.vectorstore_dir))
+        chroma_collection = chroma_client.get_collection(name=self.collection_name)
+        vector_store = ChromaVectorStore(chroma_collection=chroma_collection)
+        
+        return VectorStoreIndex.from_vector_store(
+            vector_store=vector_store,
+            embed_model=self.embed_model
+        )
+    
+    def evaluate_retrieval(self, query: str, k: int = 5) -> Dict[str, Any]:
+        """
+        Q4: Evaluate retrieval quality for a given query.
+        
+        Metrics:
+        - Average similarity score of retrieved documents
+        - Score distribution
+        - Number of highly relevant documents (similarity > 0.7)
+        
+        Args:
+            query: Search query
+            k: Number of documents to retrieve
             
         Returns:
-            EvaluationMetrics with scores and feedback
+            Dictionary with retrieval metrics
         """
-        print(f"📊 Evaluating response for: {question[:50]}...")
+        # Retrieve documents
+        retriever = self.index.as_retriever(similarity_top_k=k)
+        nodes = retriever.retrieve(query)
         
-        # 1. Relevance Score (0-1): How well does the answer address the question?
-        relevance_score = self._evaluate_relevance(question, answer)
+        # Calculate metrics
+        similarities = []
+        for node in nodes:
+            score = getattr(node, 'score', 0.0)
+            similarity = max(0.0, min(1.0, 1.0 - score))
+            similarities.append(similarity)
         
-        # 2. Completeness Score (0-1): How complete is the answer?
-        completeness_score = self._evaluate_completeness(question, answer, expected_answer)
+        avg_similarity = sum(similarities) / len(similarities) if similarities else 0.0
+        highly_relevant = sum(1 for s in similarities if s > 0.7)
         
-        # 3. Accuracy Score (0-1): How accurate is the answer based on sources?
-        accuracy_score = self._evaluate_accuracy(answer, sources)
+        return {
+            "query": query,
+            "num_retrieved": len(nodes),
+            "average_similarity": round(avg_similarity, 3),
+            "highly_relevant_count": highly_relevant,
+            "similarities": [round(s, 3) for s in similarities],
+            "min_similarity": round(min(similarities), 3) if similarities else 0.0,
+            "max_similarity": round(max(similarities), 3) if similarities else 0.0
+        }
+    
+    def evaluate_answer_quality(self, 
+                                 question: str, 
+                                 expected_keywords: Optional[List[str]] = None) -> Dict[str, Any]:
+        """
+        Q4: Evaluate answer quality for a given question.
         
-        # 4. Source Quality Score (0-1): Quality and relevance of sources
-        source_quality_score = self._evaluate_source_quality(sources, ground_truth_sources)
+        Metrics:
+        - Answer length (longer answers often indicate more detail)
+        - Keyword presence (if expected keywords provided)
+        - Confidence score (from retrieval)
+        - Source diversity (number of different sources used)
         
-        # 5. Overall Score: Weighted average
-        overall_score = self._calculate_overall_score(
-            relevance_score, completeness_score, accuracy_score, source_quality_score
-        )
+        Args:
+            question: Question to answer
+            expected_keywords: Optional list of keywords expected in answer
+            
+        Returns:
+            Dictionary with answer quality metrics
+        """
+        # Get answer from QA system
+        result = self.qa_system.answer(question)
         
-        # Generate feedback
-        feedback = self._generate_feedback(
-            relevance_score, completeness_score, accuracy_score, source_quality_score
-        )
+        # Calculate metrics
+        answer = result["answer"]
+        sources = result["sources"]
         
-        metrics = EvaluationMetrics(
-            relevance_score=relevance_score,
-            completeness_score=completeness_score,
-            accuracy_score=accuracy_score,
-            source_quality_score=source_quality_score,
-            overall_score=overall_score,
-            feedback=feedback
-        )
+        # Basic metrics
+        answer_length = len(answer)
+        num_sources = len(sources)
+        unique_sources = len(set(s["source"] for s in sources))
+        confidence = result["confidence"]
         
-        # Store in history
-        self.evaluation_history.append({
+        # Keyword presence (if provided)
+        keyword_score = 0.0
+        if expected_keywords:
+            keywords_found = sum(1 for kw in expected_keywords if kw.lower() in answer.lower())
+            keyword_score = keywords_found / len(expected_keywords)
+        
+        return {
             "question": question,
-            "answer": answer,
-            "metrics": metrics,
-            "sources_count": len(sources)
-        })
-        
-        return metrics
-    
-    def _evaluate_relevance(self, question: str, answer: str) -> float:
-        """
-        Evaluate how relevant the answer is to the question.
-        
-        Args:
-            question: Original question
-            answer: Generated answer
-            
-        Returns:
-            Relevance score (0-1)
-        """
-        # Simple heuristic-based relevance evaluation
-        question_words = set(question.lower().split())
-        answer_words = set(answer.lower().split())
-        
-        # Remove common stop words
-        stop_words = {'le', 'la', 'les', 'un', 'une', 'des', 'du', 'de', 'et', 'ou', 'mais', 'donc', 'car', 'ni', 'or'}
-        question_words -= stop_words
-        answer_words -= stop_words
-        
-        if not question_words:
-            return 0.5  # Neutral score if no meaningful words
-        
-        # Calculate word overlap
-        overlap = len(question_words.intersection(answer_words))
-        relevance = min(1.0, overlap / len(question_words))
-        
-        # Bonus for direct question addressing
-        question_indicators = ['quoi', 'qui', 'quand', 'où', 'comment', 'pourquoi', 'what', 'who', 'when', 'where', 'how', 'why']
-        if any(indicator in question.lower() for indicator in question_indicators):
-            if len(answer) > 50:  # Substantial answer
-                relevance += 0.2
-        
-        return min(1.0, relevance)
-    
-    def _evaluate_completeness(self, question: str, answer: str, expected_answer: Optional[str] = None) -> float:
-        """
-        Evaluate how complete the answer is.
-        
-        Args:
-            question: Original question
-            answer: Generated answer
-            expected_answer: Reference answer (optional)
-            
-        Returns:
-            Completeness score (0-1)
-        """
-        # Length-based completeness (basic heuristic)
-        if len(answer) < 20:
-            return 0.2  # Very short answers are likely incomplete
-        elif len(answer) < 50:
-            return 0.5  # Short answers
-        elif len(answer) < 150:
-            return 0.8  # Medium answers
-        else:
-            return 1.0  # Long answers assumed more complete
-        
-        # If expected answer is provided, compare coverage
-        if expected_answer:
-            expected_words = set(expected_answer.lower().split())
-            answer_words = set(answer.lower().split())
-            
-            if expected_words:
-                coverage = len(expected_words.intersection(answer_words)) / len(expected_words)
-                return min(1.0, coverage + 0.3)  # Bonus for having expected content
-        
-        return min(1.0, len(answer) / 200)  # Normalize by expected length
-    
-    def _evaluate_accuracy(self, answer: str, sources: List[Dict]) -> float:
-        """
-        Evaluate accuracy based on source quality and confidence.
-        
-        Args:
-            answer: Generated answer
-            sources: Source documents used
-            
-        Returns:
-            Accuracy score (0-1)
-        """
-        if not sources:
-            return 0.3  # Low accuracy if no sources
-        
-        # Average source similarity as proxy for accuracy
-        similarities = [source.get('similarity', 0.0) for source in sources]
-        avg_similarity = statistics.mean(similarities) if similarities else 0.0
-        
-        # Bonus for multiple high-quality sources
-        high_quality_sources = sum(1 for s in similarities if s > 0.7)
-        source_bonus = min(0.3, high_quality_sources * 0.1)
-        
-        return min(1.0, avg_similarity + source_bonus)
-    
-    def _evaluate_source_quality(self, sources: List[Dict], ground_truth_sources: Optional[List[str]] = None) -> float:
-        """
-        Evaluate the quality and relevance of sources used.
-        
-        Args:
-            sources: Source documents used
-            ground_truth_sources: Expected sources (optional)
-            
-        Returns:
-            Source quality score (0-1)
-        """
-        if not sources:
-            return 0.0
-        
-        # Average similarity score of sources
-        similarities = [source.get('similarity', 0.0) for source in sources]
-        avg_similarity = statistics.mean(similarities)
-        
-        # Diversity bonus (different sources)
-        unique_sources = len(set(source.get('source', '') for source in sources))
-        diversity_bonus = min(0.2, unique_sources * 0.05)
-        
-        # Ground truth matching (if provided)
-        ground_truth_bonus = 0.0
-        if ground_truth_sources:
-            used_sources = [source.get('source', '') for source in sources]
-            matches = sum(1 for gt in ground_truth_sources if any(gt in used for used in used_sources))
-            ground_truth_bonus = min(0.3, matches / len(ground_truth_sources))
-        
-        return min(1.0, avg_similarity + diversity_bonus + ground_truth_bonus)
-    
-    def _calculate_overall_score(self, relevance: float, completeness: float, accuracy: float, source_quality: float) -> float:
-        """
-        Calculate weighted overall score.
-        
-        Args:
-            relevance: Relevance score
-            completeness: Completeness score
-            accuracy: Accuracy score
-            source_quality: Source quality score
-            
-        Returns:
-            Overall weighted score (0-1)
-        """
-        # Weighted average (relevance and accuracy are most important)
-        weights = {
-            'relevance': 0.35,
-            'completeness': 0.20,
-            'accuracy': 0.30,
-            'source_quality': 0.15
-        }
-        
-        overall = (
-            relevance * weights['relevance'] +
-            completeness * weights['completeness'] +
-            accuracy * weights['accuracy'] +
-            source_quality * weights['source_quality']
-        )
-        
-        return round(overall, 3)
-    
-    def _generate_feedback(self, relevance: float, completeness: float, accuracy: float, source_quality: float) -> str:
-        """
-        Generate human-readable feedback based on scores.
-        
-        Args:
-            relevance: Relevance score
-            completeness: Completeness score
-            accuracy: Accuracy score
-            source_quality: Source quality score
-            
-        Returns:
-            Feedback string
-        """
-        feedback_parts = []
-        
-        # Relevance feedback
-        if relevance >= 0.8:
-            feedback_parts.append("✅ Réponse très pertinente")
-        elif relevance >= 0.6:
-            feedback_parts.append("🟡 Réponse moyennement pertinente")
-        else:
-            feedback_parts.append("❌ Réponse peu pertinente")
-        
-        # Completeness feedback
-        if completeness >= 0.8:
-            feedback_parts.append("✅ Réponse complète")
-        elif completeness >= 0.6:
-            feedback_parts.append("🟡 Réponse partiellement complète")
-        else:
-            feedback_parts.append("❌ Réponse incomplète")
-        
-        # Accuracy feedback
-        if accuracy >= 0.8:
-            feedback_parts.append("✅ Haute précision")
-        elif accuracy >= 0.6:
-            feedback_parts.append("🟡 Précision moyenne")
-        else:
-            feedback_parts.append("❌ Faible précision")
-        
-        # Source quality feedback
-        if source_quality >= 0.8:
-            feedback_parts.append("✅ Sources de haute qualité")
-        elif source_quality >= 0.6:
-            feedback_parts.append("🟡 Sources de qualité moyenne")
-        else:
-            feedback_parts.append("❌ Sources de faible qualité")
-        
-        return " | ".join(feedback_parts)
-    
-    def evaluate_batch(self, qa_results: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Evaluate multiple QA results in batch.
-        
-        Args:
-            qa_results: Dictionary of question -> result mappings
-            
-        Returns:
-            Batch evaluation results with statistics
-        """
-        print(f"\n📊 Evaluating {len(qa_results)} QA pairs...")
-        
-        batch_metrics = []
-        detailed_results = {}
-        
-        for question, result in qa_results.items():
-            metrics = self.evaluate_response(
-                question=question,
-                answer=result.get('answer', ''),
-                sources=result.get('sources', [])
-            )
-            
-            batch_metrics.append(metrics)
-            detailed_results[question] = {
-                'result': result,
-                'metrics': metrics
-            }
-        
-        # Calculate batch statistics
-        avg_relevance = statistics.mean([m.relevance_score for m in batch_metrics])
-        avg_completeness = statistics.mean([m.completeness_score for m in batch_metrics])
-        avg_accuracy = statistics.mean([m.accuracy_score for m in batch_metrics])
-        avg_source_quality = statistics.mean([m.source_quality_score for m in batch_metrics])
-        avg_overall = statistics.mean([m.overall_score for m in batch_metrics])
-        
-        return {
-            'detailed_results': detailed_results,
-            'batch_statistics': {
-                'avg_relevance': round(avg_relevance, 3),
-                'avg_completeness': round(avg_completeness, 3),
-                'avg_accuracy': round(avg_accuracy, 3),
-                'avg_source_quality': round(avg_source_quality, 3),
-                'avg_overall': round(avg_overall, 3),
-                'total_questions': len(qa_results)
-            }
+            "answer_length": answer_length,
+            "num_sources": num_sources,
+            "unique_sources": unique_sources,
+            "confidence": confidence,
+            "keyword_score": round(keyword_score, 3) if expected_keywords else None,
+            "keywords_expected": expected_keywords,
+            "answer_preview": answer[:200] + "..." if len(answer) > 200 else answer
         }
     
-    def print_evaluation_report(self, metrics: EvaluationMetrics):
+    def evaluate_end_to_end(self, test_cases: List[Dict[str, Any]]):
         """
-        Print formatted evaluation report.
+        Q4: Comprehensive end-to-end evaluation.
+        
+        Run multiple test cases and aggregate metrics.
         
         Args:
-            metrics: EvaluationMetrics instance
+            test_cases: List of test case dictionaries with:
+                - question: The question to ask
+                - expected_keywords: Optional list of expected keywords
         """
-        print(f"\n" + "="*60)
-        print(f"📊 RAPPORT D'ÉVALUATION RAG")
-        print("="*60)
+        print("\n" + "="*80)
+        print("📊 Q4: COMPREHENSIVE SYSTEM EVALUATION")
+        print("="*80 + "\n")
         
-        print(f"\n📈 SCORES DÉTAILLÉS:")
-        print(f"   Pertinence:      {metrics.relevance_score:.1%}")
-        print(f"   Complétude:      {metrics.completeness_score:.1%}")
-        print(f"   Précision:       {metrics.accuracy_score:.1%}")
-        print(f"   Qualité sources: {metrics.source_quality_score:.1%}")
-        print(f"   Score global:    {metrics.overall_score:.1%}")
+        results = []
         
-        print(f"\n💬 FEEDBACK:")
-        print(f"   {metrics.feedback}")
+        for i, test_case in enumerate(test_cases, 1):
+            question = test_case['question']
+            keywords = test_case.get('expected_keywords', [])
+            
+            print(f"Test Case #{i}: {question}")
+            print("-"*80)
+            
+            # Evaluate retrieval
+            retrieval_metrics = self.evaluate_retrieval(question, k=5)
+            print(f"📥 Retrieval:")
+            print(f"   - Average Similarity: {retrieval_metrics['average_similarity']*100:.1f}%")
+            print(f"   - Highly Relevant: {retrieval_metrics['highly_relevant_count']}/5")
+            
+            # Evaluate answer
+            answer_metrics = self.evaluate_answer_quality(question, keywords)
+            print(f"\n💡 Answer Quality:")
+            print(f"   - Answer Length: {answer_metrics['answer_length']} characters")
+            print(f"   - Confidence: {answer_metrics['confidence']*100:.1f}%")
+            print(f"   - Sources Used: {answer_metrics['num_sources']} ({answer_metrics['unique_sources']} unique)")
+            if answer_metrics['keyword_score'] is not None:
+                print(f"   - Keyword Score: {answer_metrics['keyword_score']*100:.1f}%")
+            
+            print("\n")
+            
+            results.append({
+                "test_case": i,
+                "question": question,
+                "retrieval": retrieval_metrics,
+                "answer": answer_metrics
+            })
         
-        # Overall assessment
-        if metrics.overall_score >= 0.8:
-            assessment = "🟢 EXCELLENT"
-        elif metrics.overall_score >= 0.6:
-            assessment = "🟡 SATISFAISANT"
-        else:
-            assessment = "🔴 À AMÉLIORER"
+        # Aggregate statistics
+        print("="*80)
+        print("📈 AGGREGATE STATISTICS")
+        print("="*80 + "\n")
         
-        print(f"\n🎯 ÉVALUATION GLOBALE: {assessment}")
-        print("="*60)
+        avg_retrieval_sim = sum(r['retrieval']['average_similarity'] for r in results) / len(results)
+        avg_confidence = sum(r['answer']['confidence'] for r in results) / len(results)
+        avg_answer_length = sum(r['answer']['answer_length'] for r in results) / len(results)
+        
+        print(f"Average Retrieval Similarity: {avg_retrieval_sim*100:.1f}%")
+        print(f"Average Answer Confidence: {avg_confidence*100:.1f}%")
+        print(f"Average Answer Length: {avg_answer_length:.0f} characters")
+        
+        # Keyword scores (if available)
+        keyword_scores = [r['answer']['keyword_score'] for r in results if r['answer']['keyword_score'] is not None]
+        if keyword_scores:
+            avg_keyword = sum(keyword_scores) / len(keyword_scores)
+            print(f"Average Keyword Score: {avg_keyword*100:.1f}%")
     
-    def get_evaluation_summary(self) -> Dict[str, Any]:
+    def quick_quality_check(self):
         """
-        Get summary of all evaluations performed.
+        Q4: Quick quality check with sample queries.
         
-        Returns:
-            Summary statistics of evaluation history
+        Run a few sample queries to quickly assess system quality.
         """
-        if not self.evaluation_history:
-            return {"message": "Aucune évaluation effectuée"}
+        print("\n" + "="*80)
+        print("⚡ Q4: QUICK QUALITY CHECK")
+        print("="*80 + "\n")
         
-        overall_scores = [eval_data['metrics'].overall_score for eval_data in self.evaluation_history]
+        sample_queries = [
+            "What is the main topic of these documents?",
+            "Can you summarize the key points?",
+            "What are the most important concepts?"
+        ]
         
-        return {
-            'total_evaluations': len(self.evaluation_history),
-            'average_score': round(statistics.mean(overall_scores), 3),
-            'best_score': round(max(overall_scores), 3),
-            'worst_score': round(min(overall_scores), 3),
-            'score_distribution': {
-                'excellent (≥80%)': sum(1 for score in overall_scores if score >= 0.8),
-                'satisfaisant (60-79%)': sum(1 for score in overall_scores if 0.6 <= score < 0.8),
-                'à améliorer (<60%)': sum(1 for score in overall_scores if score < 0.6)
-            }
-        }
+        for i, query in enumerate(sample_queries, 1):
+            print(f"Query #{i}: {query}")
+            print("-"*80)
+            
+            metrics = self.evaluate_retrieval(query, k=3)
+            print(f"Retrieval Quality: {metrics['average_similarity']*100:.1f}%")
+            print(f"Highly Relevant: {metrics['highly_relevant_count']}/3")
+            print()
+        
+        print("✅ Quick check complete!")
+
