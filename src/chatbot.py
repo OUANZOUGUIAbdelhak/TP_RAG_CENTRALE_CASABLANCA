@@ -35,7 +35,7 @@ class RAGChatbot:
         """
         self.session_id = session_id or f"session_{len(self.conversation_history)}"
         self.conversation_history = []
-        print(f"💬 Nouvelle session de chat démarrée: {self.session_id}")
+        print(f" Nouvelle session de chat démarrée: {self.session_id}")
     
     def chat(self, message: str, verbose: bool = False) -> Dict[str, Any]:
         """
@@ -49,13 +49,13 @@ class RAGChatbot:
             Dictionary with response and metadata
         """
         if verbose:
-            print(f"💬 Message utilisateur: {message}")
+            print(f" Message utilisateur: {message}")
         
         # Build contextualized query with conversation history
         contextualized_query = self._build_contextualized_query(message)
         
         if verbose and contextualized_query != message:
-            print(f"📝 Requête contextualisée: {contextualized_query[:200]}...")
+            print(f" Requête contextualisée: {contextualized_query[:200]}...")
         
         # Get response from QA system
         qa_result = self.qa_system.answer_question(contextualized_query)
@@ -183,7 +183,7 @@ class RAGChatbot:
     def clear_history(self):
         """Clear conversation history."""
         self.conversation_history = []
-        print(f"🗑️ Historique de conversation effacé pour la session {self.session_id}")
+        print(f" Historique de conversation effacé pour la session {self.session_id}")
     
     def export_conversation(self) -> Dict[str, Any]:
         """
@@ -201,19 +201,19 @@ class RAGChatbot:
     def print_conversation_history(self):
         """Print formatted conversation history."""
         if not self.conversation_history:
-            print("📭 Aucun historique de conversation")
+            print(" Aucun historique de conversation")
             return
         
         print(f"\n" + "="*80)
-        print(f"💬 HISTORIQUE DE CONVERSATION - Session: {self.session_id}")
+        print(f" HISTORIQUE DE CONVERSATION - Session: {self.session_id}")
         print("="*80)
         
         for i, turn in enumerate(self.conversation_history, 1):
             print(f"\n--- Tour {i} ---")
-            print(f"👤 Utilisateur: {turn['user_message']}")
-            print(f"🤖 Assistant: {turn['assistant_response'][:200]}...")
-            print(f"📊 Confiance: {turn['confidence']:.1%}")
-            print(f"📚 Sources: {len(turn['sources'])}")
+            print(f" Utilisateur: {turn['user_message']}")
+            print(f" Assistant: {turn['assistant_response'][:200]}...")
+            print(f" Confiance: {turn['confidence']:.1%}")
+            print(f" Sources: {len(turn['sources'])}")
         
         print(f"\n" + "="*80)
     
@@ -221,19 +221,19 @@ class RAGChatbot:
         """
         Start an interactive chat session.
         """
-        print(f"\n🤖 Chatbot RAG interactif démarré!")
-        print(f"💡 Tapez 'quit' pour quitter, 'history' pour voir l'historique")
-        print(f"💡 Tapez 'clear' pour effacer l'historique, 'summary' pour un résumé")
+        print(f"\n Chatbot RAG interactif démarré!")
+        print(f" Tapez 'quit' pour quitter, 'history' pour voir l'historique")
+        print(f" Tapez 'clear' pour effacer l'historique, 'summary' pour un résumé")
         print("-" * 60)
         
         self.start_session()
         
         while True:
             try:
-                user_input = input("\n👤 Vous: ").strip()
+                user_input = input("\n Vous: ").strip()
                 
                 if user_input.lower() in ['quit', 'exit', 'bye']:
-                    print("👋 Au revoir!")
+                    print(" Au revoir!")
                     break
                 elif user_input.lower() == 'history':
                     self.print_conversation_history()
@@ -243,24 +243,24 @@ class RAGChatbot:
                     continue
                 elif user_input.lower() == 'summary':
                     summary = self.get_conversation_summary()
-                    print(f"\n📊 Résumé: {summary}")
+                    print(f"\n Résumé: {summary}")
                     continue
                 elif not user_input:
-                    print("⚠️ Veuillez saisir une question.")
+                    print(" Veuillez saisir une question.")
                     continue
                 
                 # Process message
-                print("🔍 Recherche en cours...")
+                print(" Recherche en cours...")
                 response = self.chat(user_input)
                 
-                print(f"\n🤖 Assistant: {response['message']}")
-                print(f"📊 Confiance: {response['confidence']:.1%} | Sources: {len(response['sources'])}")
+                print(f"\n Assistant: {response['message']}")
+                print(f" Confiance: {response['confidence']:.1%} | Sources: {len(response['sources'])}")
                 
             except KeyboardInterrupt:
-                print("\n👋 Session interrompue. Au revoir!")
+                print("\n Session interrompue. Au revoir!")
                 break
             except Exception as e:
-                print(f"❌ Erreur: {e}")
+                print(f" Erreur: {e}")
 
 
 class MultiSessionChatbot:
@@ -290,7 +290,7 @@ class MultiSessionChatbot:
             RAGChatbot instance for the session
         """
         if session_id in self.sessions:
-            print(f"⚠️ Session {session_id} existe déjà")
+            print(f" Session {session_id} existe déjà")
             return self.sessions[session_id]
         
         chatbot = RAGChatbot(self.qa_system)
@@ -298,7 +298,7 @@ class MultiSessionChatbot:
         self.sessions[session_id] = chatbot
         self.active_session = session_id
         
-        print(f"✅ Session {session_id} créée")
+        print(f" Session {session_id} créée")
         return chatbot
     
     def switch_session(self, session_id: str) -> Optional[RAGChatbot]:
@@ -312,7 +312,7 @@ class MultiSessionChatbot:
             RAGChatbot instance or None if not found
         """
         if session_id not in self.sessions:
-            print(f"❌ Session {session_id} introuvable")
+            print(f" Session {session_id} introuvable")
             return None
         
         self.active_session = session_id
