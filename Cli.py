@@ -228,8 +228,8 @@ def cmd_evaluate(args, config):
         return 0
         
     except Exception as e:
-        print(f"❌ Error during evaluation: {e}")
-        print("💡 Have you built the index first? Run: python Cli.py build")
+        print(f" Error during evaluation: {e}")
+        print(" Have you built the index first? Run: python Cli.py build")
         import traceback
         traceback.print_exc()
         return 1
