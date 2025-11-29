@@ -61,8 +61,8 @@ def cmd_build(args, config):
     # Check if we have PDFs
     print("🔍 Checking for PDF files...")
     if not check_data_folder(data_dir):
-        print("\n❌ No PDF files found!")
-        print(f"💡 Please add 3-4 PDF files to: {data_dir}")
+        print("\n No PDF files found!")
+        print(f" Please add 3-4 PDF files to: {data_dir}")
         return 1
     
     print()
