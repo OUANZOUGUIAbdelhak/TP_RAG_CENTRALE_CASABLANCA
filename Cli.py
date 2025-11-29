@@ -66,7 +66,7 @@ def cmd_build(args, config):
     Command: Build the index from PDF documents (Q1)
     """
     print("\n" + "="*80)
-    print("🏗️  BUILD INDEX (Q1)")
+    print("  BUILD INDEX (Q1)")
     print("="*80 + "\n")
     
     data_dir = config['paths']['data_dir']
