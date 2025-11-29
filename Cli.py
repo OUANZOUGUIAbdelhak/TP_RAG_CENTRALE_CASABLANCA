@@ -1,19 +1,5 @@
 #!/usr/bin/env python3
-"""
-CLI - Command Line Interface for the RAG System
 
-This is the main entry point! Run all functionality from here.
-
-Usage:
-    python Cli.py build         # Build the index from PDFs (Q1)
-    python Cli.py search        # Search documents (Q2)
-    python Cli.py ask           # Ask a question (Q3)
-    python Cli.py evaluate      # Evaluate the system (Q4)
-    python Cli.py chat          # Start interactive chatbot (Q5)
-    python Cli.py --help        # Show help
-
-No hardcoded values - everything comes from Config.yaml!
-"""
 
 import sys
 import os
