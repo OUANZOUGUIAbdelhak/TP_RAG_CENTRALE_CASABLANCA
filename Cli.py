@@ -240,7 +240,7 @@ def cmd_chat(args, config):
     Command: Start interactive chatbot (Q5 - Bonus)
     """
     print("\n" + "="*80)
-    print("💬 INTERACTIVE CHATBOT (Q5)")
+    print(" INTERACTIVE CHATBOT (Q5)")
     print("="*80 + "\n")
     
     vectorstore_dir = config['paths']['vectorstore_dir']
@@ -258,8 +258,8 @@ def cmd_chat(args, config):
         return 0
         
     except Exception as e:
-        print(f"❌ Error starting chatbot: {e}")
-        print("💡 Have you built the index first? Run: python Cli.py build")
+        print(f" Error starting chatbot: {e}")
+        print(" Have you built the index first? Run: python Cli.py build")
         import traceback
         traceback.print_exc()
         return 1
@@ -311,7 +311,7 @@ Examples:
     # Show help if no command provided
     if not args.command:
         parser.print_help()
-        print("\n💡 Start with: python Cli.py build")
+        print("\n Start with: python Cli.py build")
         return 0
     
     # Load configuration
@@ -329,7 +329,7 @@ Examples:
     if args.command in commands:
         return commands[args.command](args, config)
     else:
-        print(f"❌ Unknown command: {args.command}")
+        print(f" Unknown command: {args.command}")
         return 1
 
 
@@ -338,10 +338,10 @@ if __name__ == "__main__":
         exit_code = main()
         sys.exit(exit_code)
     except KeyboardInterrupt:
-        print("\n\n👋 Interrupted by user.")
+        print("\n\n Interrupted by user.")
         sys.exit(0)
     except Exception as e:
-        print(f"\n❌ Unexpected error: {e}")
+        print(f"\n Unexpected error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)
