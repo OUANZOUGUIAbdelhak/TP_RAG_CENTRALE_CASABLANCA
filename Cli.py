@@ -69,9 +69,9 @@ def cmd_build(args, config):
     
     # Confirm before building (unless --force flag is used)
     if not args.force:
-        response = input("🚀 Ready to build? This might take a few minutes. (y/n): ")
+        response = input(" Ready to build? This might take a few minutes. (y/n): ")
         if response.lower() not in ['y', 'yes']:
-            print("👋 Cancelled.")
+            print(" Cancelled.")
             return 0
         print()
     
