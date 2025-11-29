@@ -120,7 +120,7 @@ def cmd_search(args, config):
     else:
         query = input("Enter your search query: ").strip()
         if not query:
-            print("❌ No query provided.")
+            print(" No query provided.")
             return 1
     
     print()
@@ -136,8 +136,8 @@ def cmd_search(args, config):
         return 0
         
     except Exception as e:
-        print(f"❌ Error during search: {e}")
-        print("💡 Have you built the index first? Run: python Cli.py build")
+        print(f" Error during search: {e}")
+        print(" Have you built the index first? Run: python Cli.py build")
         import traceback
         traceback.print_exc()
         return 1
@@ -148,7 +148,7 @@ def cmd_ask(args, config):
     Command: Ask a question and get an answer (Q3)
     """
     print("\n" + "="*80)
-    print("❓ ASK A QUESTION (Q3)")
+    print(" ASK A QUESTION (Q3)")
     print("="*80 + "\n")
     
     vectorstore_dir = config['paths']['vectorstore_dir']
@@ -159,7 +159,7 @@ def cmd_ask(args, config):
     else:
         question = input("Enter your question: ").strip()
         if not question:
-            print("❌ No question provided.")
+            print(" No question provided.")
             return 1
     
     print()
@@ -175,8 +175,8 @@ def cmd_ask(args, config):
         return 0
         
     except Exception as e:
-        print(f"❌ Error getting answer: {e}")
-        print("💡 Have you built the index first? Run: python Cli.py build")
+        print(f" Error getting answer: {e}")
+        print(" Have you built the index first? Run: python Cli.py build")
         import traceback
         traceback.print_exc()
         return 1
@@ -187,13 +187,13 @@ def cmd_evaluate(args, config):
     Command: Evaluate system performance (Q4)
     """
     print("\n" + "="*80)
-    print("📊 EVALUATE SYSTEM (Q4)")
+    print(" EVALUATE SYSTEM (Q4)")
     print("="*80 + "\n")
     
     vectorstore_dir = config['paths']['vectorstore_dir']
     
     # Sample test cases - YOU SHOULD CUSTOMIZE THESE!
-    print("⚠️  Using default test cases. For better evaluation, modify the test cases in cli.py")
+    print("  Using default test cases. For better evaluation, modify the test cases in cli.py")
     print()
     
     test_cases = [
