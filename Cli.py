@@ -95,11 +95,11 @@ def cmd_build(args, config):
         
         indexer.build_index()
         
-        print("\n✅ Build complete! You can now use search, ask, evaluate, or chat commands.")
+        print("\n Build complete! You can now use search, ask, evaluate, or chat commands.")
         return 0
         
     except Exception as e:
-        print(f"\n❌ Error building index: {e}")
+        print(f"\n Error building index: {e}")
         return 1
 
 
@@ -108,7 +108,7 @@ def cmd_search(args, config):
     Command: Search for documents (Q2)
     """
     print("\n" + "="*80)
-    print("🔍 SEARCH DOCUMENTS (Q2)")
+    print(" SEARCH DOCUMENTS (Q2)")
     print("="*80 + "\n")
     
     vectorstore_dir = config['paths']['vectorstore_dir']
