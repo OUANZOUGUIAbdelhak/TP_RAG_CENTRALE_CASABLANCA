@@ -410,4 +410,3 @@ function ChatSidebar({ sessionId, onNewSession, draggedDocument, onDragEnd, inde
 }
 
 export default ChatSidebar
-
