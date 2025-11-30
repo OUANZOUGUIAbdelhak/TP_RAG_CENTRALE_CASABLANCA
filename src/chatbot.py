@@ -109,15 +109,7 @@ class RAGChatbot:
         }
     
     def _extract_topics(self, messages: List[str]) -> List[str]:
-        """
-        Extract main topics from conversation messages.
-        
-        Args:
-            messages: List of user messages
-            
-        Returns:
-            List of identified topics
-        """
+
         # Simple keyword-based topic extraction
         all_text = " ".join(messages).lower()
         
