@@ -4,7 +4,7 @@ Chatbot with conversation memory using the RAG QA system.
 """
 
 from typing import List, Dict, Any, Optional
-from src.qa_system import QASystem
+from qa_system import QASystem
 
 
 class RAGChatbot:
