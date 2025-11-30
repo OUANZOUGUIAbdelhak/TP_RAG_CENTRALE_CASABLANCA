@@ -36,7 +36,7 @@ class RAGEvaluator:
     
     def __init__(self,
                  vectorstore_dir: str = "./vectorstore",
-                 embedding_model_name: str = "BAAI/bge-small-en-v1.5",
+                 embedding_model_name: str = "BAAI/bge-large-en-v1.5",
                  collection_name: str = "rag_collection"):
         """
         Initialize the evaluator.
@@ -75,7 +75,7 @@ class RAGEvaluator:
             embed_model=self.embed_model
         )
     
-    def evaluate_retrieval(self, query: str, k: int = 5) -> Dict[str, Any]:
+    def evaluate_retrieval(self, query: str, k: int = 10) -> Dict[str, Any]:
         """
         Q4: Evaluate retrieval quality for a given query.
         
@@ -189,10 +189,10 @@ class RAGEvaluator:
             print("-"*80)
             
             # Evaluate retrieval
-            retrieval_metrics = self.evaluate_retrieval(question, k=5)
+            retrieval_metrics = self.evaluate_retrieval(question, k=10)
             print(f"📥 Retrieval:")
             print(f"   - Average Similarity: {retrieval_metrics['average_similarity']*100:.1f}%")
-            print(f"   - Highly Relevant: {retrieval_metrics['highly_relevant_count']}/5")
+            print(f"   - Highly Relevant: {retrieval_metrics['highly_relevant_count']}/10")
             
             # Evaluate answer
             answer_metrics = self.evaluate_answer_quality(question, keywords)
@@ -244,7 +244,7 @@ class RAGEvaluator:
         sample_queries = [
             "What is the main topic of these documents?",
             "Can you summarize the key points?",
-            "What are the most important concepts?"
+            "which document talks more about thiamine deficiency in developed countires?"
         ]
         
         for i, query in enumerate(sample_queries, 1):
