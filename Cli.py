@@ -6,10 +6,7 @@ import os
 import argparse
 import yaml
 from pathlib import Path
-
-# Add src to the path so we can import our modules
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
-
 from src.indexer import DocumentIndexer, check_data_folder
 from src.retriever import DocumentRetriever
 from src.qa_system import QASystem
@@ -206,8 +203,8 @@ def cmd_evaluate(args, config):
             'expected_keywords': ['summary', 'points', 'main']
         },
         {
-            'question': 'What are the important concepts?',
-            'expected_keywords': ['concept', 'important', 'key']
+            'question': 'which document talks more about thiamine deficiency in developed countires?',
+            'expected_keywords': ['thiamine', 'deficiency', 'developed', 'countries']
         }
     ]
     
@@ -248,13 +245,19 @@ def cmd_chat(args, config):
     
     # Start chatbot
     try:
-        chatbot = RAGChatbot(
+        # Create QASystem instance first
+        qa_system = QASystem(
             vectorstore_dir=vectorstore_dir,
-            embedding_model_name=config['embedding']['model_name'],
+            embedding_model_name=config['embedding']['model_name']
+        )
+        
+        # Create chatbot with QASystem
+        chatbot = RAGChatbot(
+            qa_system=qa_system,
             max_history=max_history
         )
         
-        chatbot.interactive_session()
+        chatbot.interactive_chat()
         return 0
         
     except Exception as e:
