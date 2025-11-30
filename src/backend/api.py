@@ -57,15 +57,23 @@ def load_config():
 CONFIG = load_config()
 
 # Global configuration
-DATA_DIR = Path(CONFIG.get('paths', {}).get('data_dir', './data'))
-VECTORSTORE_DIR = Path(CONFIG.get('paths', {}).get('vectorstore_dir', './vectorstore'))
-SESSIONS_DIR = Path("./chat_sessions")
+# Get project root (go up from src/backend/ to project root)
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+
+# Helper function to resolve paths (strip ./ prefix if present)
+def resolve_path(path_str: str) -> str:
+    """Resolve path string, removing ./ prefix if present"""
+    return path_str.lstrip('./') if path_str.startswith('./') else path_str
+
+DATA_DIR = PROJECT_ROOT / resolve_path(CONFIG.get('paths', {}).get('data_dir', 'data'))
+VECTORSTORE_DIR = PROJECT_ROOT / resolve_path(CONFIG.get('paths', {}).get('vectorstore_dir', 'data/vectorstore'))
+SESSIONS_DIR = PROJECT_ROOT / resolve_path(CONFIG.get('paths', {}).get('chat_sessions_dir', 'data/chat_sessions'))
 EMBEDDING_MODEL = CONFIG.get('embedding', {}).get('model_name', 'sentence-transformers/all-MiniLM-L6-v2')
 
 # Ensure directories exist
-DATA_DIR.mkdir(exist_ok=True)
-VECTORSTORE_DIR.mkdir(exist_ok=True)
-SESSIONS_DIR.mkdir(exist_ok=True)
+DATA_DIR.mkdir(exist_ok=True, parents=True)
+VECTORSTORE_DIR.mkdir(exist_ok=True, parents=True)
+SESSIONS_DIR.mkdir(exist_ok=True, parents=True)
 
 # Global instances
 indexer = None
@@ -81,17 +89,17 @@ chatbot_instances = {}  # session_id -> chatbot instance
 async def lifespan(app: FastAPI):
     """Handle startup and shutdown events"""
     # Startup
-    print("🚀 Starting RAG System API...")
-    print(f"📁 Data directory: {DATA_DIR.absolute()}")
-    print(f"🗄️  Vector store: {VECTORSTORE_DIR.absolute()}")
+    print(" Starting RAG System API...")
+    print(f" Data directory: {DATA_DIR.absolute()}")
+    print(f"  Vector store: {VECTORSTORE_DIR.absolute()}")
     
     # Try to initialize RAG system if index exists
     if initialize_rag_system():
-        print("✅ RAG System initialized")
+        print(" RAG System initialized")
     else:
-        print("⚠️  RAG System not initialized - build index first")
+        print("  RAG System not initialized - build index first")
     
-    print("✅ API Server ready!")
+    print(" API Server ready!")
     
     yield
     
@@ -196,11 +204,14 @@ def initialize_rag_system():
         return False
     
     try:
-        # Load config to get Groq settings
+        # Load config to get Groq and Gemini settings
         config = load_config()
         groq_config = config.get('groq', {})
+        gemini_config = config.get('gemini', {})
         groq_api_key = groq_config.get('api_key')
         groq_model = groq_config.get('model', 'llama-3.3-70b-versatile')
+        gemini_api_key = gemini_config.get('api_key')
+        gemini_model = gemini_config.get('model', 'gemini-2.0-flash')
         
         # Initialize retriever
         retriever = DocumentRetriever(
@@ -208,12 +219,14 @@ def initialize_rag_system():
             embedding_model_name=EMBEDDING_MODEL
         )
         
-        # Initialize QA system with Groq config
+        # Initialize QA system with fallback config (Groq -> Gemini)
         qa_system = QASystem(
             vectorstore_dir=str(VECTORSTORE_DIR),
             embedding_model_name=EMBEDDING_MODEL,
             groq_api_key=groq_api_key,
-            groq_model=groq_model
+            groq_model=groq_model,
+            gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model
         )
         
         return True
@@ -234,19 +247,12 @@ def get_or_create_chatbot(session_id: str) -> RAGChatbot:
             )
     
     if session_id not in chatbot_instances:
-        # Load config to get Groq settings
-        config = load_config()
-        groq_config = config.get('groq', {})
-        groq_api_key = groq_config.get('api_key')
-        groq_model = groq_config.get('model', 'llama-3.3-70b-versatile')
-        
+        # Create chatbot with QA system
         chatbot_instances[session_id] = RAGChatbot(
-            vectorstore_dir=str(VECTORSTORE_DIR),
-            embedding_model_name=EMBEDDING_MODEL,
-            max_history=10,
-            groq_api_key=groq_api_key,
-            groq_model=groq_model
+            qa_system=qa_system,
+            max_history=10
         )
+        chatbot_instances[session_id].start_session(session_id)
     return chatbot_instances[session_id]
 
 def load_session_history(session_id: str) -> List[Dict]:
@@ -451,10 +457,13 @@ async def build_index(request: BuildIndexRequest = None):
         # Load config
         config = load_config()
         
-        # Get Groq API key for advanced RAG pipeline (if available)
+        # Get Groq and Gemini API keys for advanced RAG pipeline (with fallback)
         groq_config = config.get('groq', {})
+        gemini_config = config.get('gemini', {})
         groq_api_key = groq_config.get('api_key')
         groq_model = groq_config.get('model', 'llama-3.3-70b-versatile')
+        gemini_api_key = gemini_config.get('api_key')
+        gemini_model = gemini_config.get('model', 'gemini-2.0-flash')
         
         indexer = DocumentIndexer(
             data_dir=str(DATA_DIR),
@@ -464,6 +473,8 @@ async def build_index(request: BuildIndexRequest = None):
             chunk_overlap=config.get('document_processing', {}).get('chunk_overlap', 128),
             groq_api_key=groq_api_key,
             groq_model=groq_model,
+            gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model,
             use_advanced_rag=True  # Enable advanced RAG pipeline
         )
         
@@ -573,7 +584,7 @@ async def delete_vectorstore():
 @app.post("/api/search")
 async def search_documents(
     query: str = Body(..., embed=True),
-    k: int = Body(5, embed=True)
+    k: int = Body(10, embed=True)
 ):
     """Search for relevant documents"""
     try:
@@ -624,23 +635,18 @@ async def chat(message: ChatMessage):
         # Get or create chatbot for this session
         chatbot = get_or_create_chatbot(message.session_id)
         
-        # If specific document is provided, search only in that document
-        if message.document_path:
-            # TODO: Implement document-specific search
-            # For now, use regular chat
-            pass
+        # Get response from chatbot (returns dict with message, sources, confidence)
+        # Pass document_path if provided to filter by specific document
+        chatbot_response = chatbot.chat(
+            message.message, 
+            verbose=False,
+            document_path=message.document_path
+        )
         
-        # Get response from chatbot
-        answer = chatbot.chat(message.message, verbose=False)
-        
-        # Query QA system to get sources and confidence
-        global qa_system
-        if not qa_system:
-            initialize_rag_system()
-        
-        result = qa_system.answer(message.message)
-        confidence = result.get('confidence', 0.0)
-        sources = result.get('sources', [])
+        # Extract response components
+        answer = chatbot_response.get('message', '')
+        sources = chatbot_response.get('sources', [])
+        confidence = chatbot_response.get('confidence', 0.0)
         
         # Load session history
         history = load_session_history(message.session_id)
@@ -670,8 +676,14 @@ async def chat(message: ChatMessage):
             timestamp=datetime.now().isoformat()
         )
         
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"❌ Chat error: {e}")
+        print(f"❌ Error details: {error_details}")
+        raise HTTPException(status_code=500, detail=f"Chat error: {str(e)}")
 
 @app.get("/api/sessions")
 async def list_sessions():
@@ -774,6 +786,7 @@ def find_available_port(start_port: int = 8000, max_attempts: int = 10) -> int:
 
 if __name__ == "__main__":
     import uvicorn
+    import logging
     
     print("\n" + "="*60)
     print("🚀 RAG System Backend API")
@@ -784,18 +797,27 @@ if __name__ == "__main__":
     port = default_port
     
     if not is_port_available("127.0.0.1", default_port):
-        print(f"⚠️  Port {default_port} is already in use. Searching for alternative port...")
+        print(f"  Port {default_port} is already in use. Searching for alternative port...")
         available_port = find_available_port(default_port)
         if available_port:
             port = available_port
-            print(f"✅ Found available port: {port}")
+            print(f" Found available port: {port}")
         else:
-            print(f"❌ Could not find an available port. Please free up port {default_port} or specify a different port.")
+            print(f" Could not find an available port. Please free up port {default_port} or specify a different port.")
             sys.exit(1)
     
-    print(f"\n📡 Starting server at: http://127.0.0.1:{port}")
-    print(f"📚 API Docs: http://127.0.0.1:{port}/docs")
-    print("\n💡 Press Ctrl+C to stop\n")
+    print(f"\n Starting server at: http://127.0.0.1:{port}")
+    print(f" API Docs: http://127.0.0.1:{port}/docs")
+    print("\n Press Ctrl+C to stop\n")
+    
+    # Configure custom logging to suppress /api/health logs
+    class HealthCheckFilter(logging.Filter):
+        def filter(self, record: logging.LogRecord) -> bool:
+            # Suppress logs for /api/health endpoint
+            return "/api/health" not in record.getMessage()
+    
+    # Get uvicorn access logger and add filter
+    logging.getLogger("uvicorn.access").addFilter(HealthCheckFilter())
     
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
 
