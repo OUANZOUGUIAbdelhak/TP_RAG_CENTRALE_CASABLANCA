@@ -18,3 +18,4 @@ python-multipart>=0.0.12,<1.0.0
 requests>=2.31.0
 protobuf>=5.26.1,<6.0dev
 openpyxl>=3.1.5
+google-generativeai>=0.8.0
