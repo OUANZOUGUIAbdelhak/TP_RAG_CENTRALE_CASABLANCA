@@ -131,17 +131,11 @@ class RAGChatbot:
         return identified_topics
     
     def clear_history(self):
-        """Clear conversation history."""
         self.conversation_history = []
         print(f" Historique de conversation effacé pour la session {self.session_id}")
     
     def export_conversation(self) -> Dict[str, Any]:
-        """
-        Export conversation history.
-        
-        Returns:
-            Complete conversation data
-        """
+
         return {
             "session_id": self.session_id,
             "conversation_history": self.conversation_history,
@@ -214,31 +208,15 @@ class RAGChatbot:
 
 
 class MultiSessionChatbot:
-    """
-    Extended chatbot supporting multiple conversation sessions.
-    """
     
     def __init__(self, qa_system: QASystem):
-        """
-        Initialize multi-session chatbot.
-        
-        Args:
-            qa_system: QASystem instance
-        """
+
         self.qa_system = qa_system
         self.sessions = {}
         self.active_session = None
     
     def create_session(self, session_id: str) -> RAGChatbot:
-        """
-        Create a new chat session.
-        
-        Args:
-            session_id: Unique session identifier
-            
-        Returns:
-            RAGChatbot instance for the session
-        """
+
         if session_id in self.sessions:
             print(f" Session {session_id} existe déjà")
             return self.sessions[session_id]
@@ -252,30 +230,17 @@ class MultiSessionChatbot:
         return chatbot
     
     def switch_session(self, session_id: str) -> Optional[RAGChatbot]:
-        """
-        Switch to an existing session.
-        
-        Args:
-            session_id: Session to switch to
-            
-        Returns:
-            RAGChatbot instance or None if not found
-        """
+
         if session_id not in self.sessions:
             print(f" Session {session_id} introuvable")
             return None
         
         self.active_session = session_id
-        print(f"🔄 Basculé vers la session {session_id}")
+        print(f" Basculé vers la session {session_id}")
         return self.sessions[session_id]
     
     def list_sessions(self) -> Dict[str, Any]:
-        """
-        List all active sessions.
-        
-        Returns:
-            Dictionary of session summaries
-        """
+
         return {
             session_id: chatbot.get_conversation_summary()
             for session_id, chatbot in self.sessions.items()
