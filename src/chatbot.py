@@ -1,8 +1,3 @@
-"""
-RAG Chatbot - Q5 (Bonus): Construction de chatbot
-Chatbot with conversation memory using the RAG QA system.
-"""
-
 from typing import List, Dict, Any, Optional
 from qa_system import QASystem
 
@@ -63,15 +58,6 @@ class RAGChatbot:
         return response
     
     def _build_contextualized_query(self, current_message: str) -> str:
-        """
-        Build a contextualized query including conversation history.
-        
-        Args:
-            current_message: Current user message
-            
-        Returns:
-            Contextualized query string
-        """
         if not self.conversation_history:
             return current_message
         
@@ -97,12 +83,7 @@ class RAGChatbot:
         return "\n".join(context_parts)
     
     def get_conversation_summary(self) -> Dict[str, Any]:
-        """
-        Get summary of current conversation.
-        
-        Returns:
-            Conversation summary with statistics
-        """
+
         if not self.conversation_history:
             return {
                 "session_id": self.session_id,
