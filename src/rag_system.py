@@ -15,6 +15,7 @@ from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.groq import Groq
 from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
+from llm_fallback import create_llm_with_fallback
 
 
 class RAGSystem:
@@ -30,7 +31,9 @@ class RAGSystem:
                  chunk_size: int = 1024,
                  chunk_overlap: int = 128,
                  groq_api_key: Optional[str] = None,
-                 groq_model: str = "llama-3.3-70b-versatile"):
+                 groq_model: str = "llama-3.3-70b-versatile",
+                 gemini_api_key: Optional[str] = None,
+                 gemini_model: str = "gemini-2.0-flash"):
         """
         Initialize the RAG system.
         
@@ -40,8 +43,10 @@ class RAGSystem:
             embedding_model: HuggingFace embedding model name
             chunk_size: Size of text chunks
             chunk_overlap: Overlap between chunks
-            groq_api_key: Groq API key for LLM
+            groq_api_key: Groq API key for LLM (optional if load_from_config)
             groq_model: Groq model name
+            gemini_api_key: Gemini API key for fallback (optional if load_from_config)
+            gemini_model: Gemini model name
         """
         self.data_dir = Path(data_dir)
         self.vectorstore_dir = Path(vectorstore_dir)
@@ -59,19 +64,17 @@ class RAGSystem:
         self.chroma_client = chromadb.PersistentClient(path=str(self.vectorstore_dir))
         self.collection_name = "rag_collection"
         
-        # Initialize LLM (Groq)
-        self.llm = None
-        if groq_api_key:
-            try:
-                print(f"🔧 Initializing Groq LLM: {groq_model}")
-                self.llm = Groq(model=groq_model, api_key=groq_api_key)
-                print(f"✅ Groq LLM initialized successfully")
-            except Exception as e:
-                print(f"⚠️  Failed to initialize Groq LLM: {e}")
-                import traceback
-                print(f"⚠️  Error details: {traceback.format_exc()}")
-        else:
-            print("⚠️  No Groq API key provided. LLM queries will not work.")
+        # Initialize LLM with fallback mechanism (Groq -> Gemini)
+        self.llm = create_llm_with_fallback(
+            groq_api_key=groq_api_key,
+            groq_model=groq_model,
+            gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model,
+            load_from_config=True
+        )
+        
+        if not self.llm:
+            print("⚠️  No LLM available (Groq or Gemini). LLM queries will not work.")
             print("⚠️  Without an LLM, queries will return raw document content instead of generated answers.")
         
         # Initialize index (will be built or loaded)
@@ -163,7 +166,7 @@ class RAGSystem:
             try:
                 self.query_engine = self.index.as_query_engine(
                     llm=self.llm,
-                    similarity_top_k=5,
+                    similarity_top_k=10,
                     response_mode="compact",
                     text_qa_template=qa_prompt_template
                 )
@@ -175,7 +178,7 @@ class RAGSystem:
                     # Try without explicit template (should use default)
                     self.query_engine = self.index.as_query_engine(
                         llm=self.llm,
-                        similarity_top_k=5,
+                        similarity_top_k=10,
                         response_mode="compact"
                     )
                     print(f"   ✅ Query engine ready (using default prompt)")
@@ -228,7 +231,7 @@ class RAGSystem:
                 try:
                     self.query_engine = self.index.as_query_engine(
                         llm=self.llm,
-                        similarity_top_k=5,
+                        similarity_top_k=10,
                         response_mode="compact",
                         text_qa_template=qa_prompt_template
                     )
@@ -236,7 +239,7 @@ class RAGSystem:
                     # Fallback if text_qa_template parameter doesn't work
                     self.query_engine = self.index.as_query_engine(
                         llm=self.llm,
-                        similarity_top_k=5,
+                        similarity_top_k=10,
                         response_mode="compact"
                     )
             
@@ -247,7 +250,7 @@ class RAGSystem:
             print(f"❌ Failed to load index: {e}")
             return False
     
-    def query(self, question: str, k: int = 5) -> Dict[str, Any]:
+    def query(self, question: str, k: int = 10) -> Dict[str, Any]:
         """
         Query the RAG system.
         
@@ -378,7 +381,7 @@ class RAGSystem:
                 "confidence": 0.0
             }
     
-    def search_documents(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+    def search_documents(self, query: str, k: int = 10) -> List[Dict[str, Any]]:
         """
         Search for relevant documents without LLM (retrieval only).
         
@@ -516,6 +519,7 @@ def create_rag_system_from_config(config_path: str = "Config.yaml") -> RAGSystem
     embedding = config.get('embedding', {})
     doc_processing = config.get('document_processing', {})
     groq_config = config.get('groq', {})
+    gemini_config = config.get('gemini', {})
     
     return RAGSystem(
         data_dir=paths.get('data_dir', './data'),
@@ -524,6 +528,8 @@ def create_rag_system_from_config(config_path: str = "Config.yaml") -> RAGSystem
         chunk_size=doc_processing.get('chunk_size', 1024),
         chunk_overlap=doc_processing.get('chunk_overlap', 128),
         groq_api_key=groq_config.get('api_key'),
-        groq_model=groq_config.get('model', 'llama-3.3-70b-versatile')
+        groq_model=groq_config.get('model', 'llama-3.3-70b-versatile'),
+        gemini_api_key=gemini_config.get('api_key'),
+        gemini_model=gemini_config.get('model', 'gemini-2.0-flash')
     )
 
