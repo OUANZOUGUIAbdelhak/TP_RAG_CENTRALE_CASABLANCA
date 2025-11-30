@@ -27,27 +27,13 @@ class RAGChatbot:
         self.session_id = None
     
     def start_session(self, session_id: str = None):
-        """
-        Start a new conversation session.
-        
-        Args:
-            session_id: Optional session identifier
-        """
+
         self.session_id = session_id or f"session_{len(self.conversation_history)}"
         self.conversation_history = []
         print(f"💬 Nouvelle session de chat démarrée: {self.session_id}")
     
     def chat(self, message: str, verbose: bool = False) -> Dict[str, Any]:
-        """
-        Process a chat message with conversation context.
-        
-        Args:
-            message: User's message
-            verbose: Print debug information
-            
-        Returns:
-            Dictionary with response and metadata
-        """
+
         if verbose:
             print(f"💬 Message utilisateur: {message}")
         
