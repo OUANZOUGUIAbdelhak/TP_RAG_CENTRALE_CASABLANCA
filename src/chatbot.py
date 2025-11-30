@@ -8,19 +8,10 @@ from qa_system import QASystem
 
 
 class RAGChatbot:
-    """
-    Q5 (Bonus): Chatbot with conversation memory.
-    Includes conversation history in prompts for contextual responses.
-    """
+
     
     def __init__(self, qa_system: QASystem, max_history: int = 5):
-        """
-        Initialize the RAG chatbot.
-        
-        Args:
-            qa_system: QASystem instance for answering questions
-            max_history: Maximum number of conversation turns to remember
-        """
+
         self.qa_system = qa_system
         self.max_history = max_history
         self.conversation_history = []
