@@ -113,7 +113,7 @@ class RAGChatbot:
         # Simple keyword-based topic extraction
         all_text = " ".join(messages).lower()
         
-        # Common topic keywords (extend based on your domain)
+        # Common topic keywords 
         topic_keywords = {
             "intelligence artificielle": ["ia", "intelligence artificielle", "machine learning", "deep learning"],
             "technologie": ["technologie", "tech", "innovation", "numérique"],
