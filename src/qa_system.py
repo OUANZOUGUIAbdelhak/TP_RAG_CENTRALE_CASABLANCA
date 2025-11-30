@@ -19,11 +19,14 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from llama_index.core import VectorStoreIndex, StorageContext
 from llama_index.core.prompts import PromptTemplate
+from llama_index.core.vector_stores import MetadataFilter, MetadataFilters, FilterOperator
+from llama_index.core.retrievers import VectorIndexRetriever
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.groq import Groq
 from llama_index.vector_stores.chroma import ChromaVectorStore
 import chromadb
 import yaml
+from llm_fallback import create_llm_with_fallback
 
 
 class QASystem:
@@ -43,6 +46,8 @@ class QASystem:
                  collection_name: str = "rag_collection",
                  groq_api_key: Optional[str] = None,
                  groq_model: str = "llama-3.3-70b-versatile",
+                 gemini_api_key: Optional[str] = None,
+                 gemini_model: str = "gemini-2.0-flash",
                  use_gemini: bool = False):
         """
         Initialize the Q&A system.
@@ -53,33 +58,27 @@ class QASystem:
             collection_name: ChromaDB collection name
             groq_api_key: Groq API key for LLM (if None, loads from config)
             groq_model: Groq model name to use
-            use_gemini: Whether to use Gemini instead of Groq (not implemented)
+            gemini_api_key: Gemini API key for fallback (if None, loads from config)
+            gemini_model: Gemini model name to use
+            use_gemini: Whether to use Gemini instead of Groq (deprecated - use fallback instead)
         """
         self.vectorstore_dir = Path(vectorstore_dir)
         self.embedding_model_name = embedding_model_name
         self.collection_name = collection_name
-        
-        # Load config to get API key if not provided
-        if groq_api_key is None:
-            groq_api_key = self._load_groq_api_key()
         
         # Initialize embedding model
         print(f"🔧 Loading embedding model: {embedding_model_name}")
         self.embed_model = HuggingFaceEmbedding(model_name=embedding_model_name)
         print(f"✅ Embedding model loaded")
         
-        # Initialize LLM (Groq - open-source models)
-        self.llm = None
-        if groq_api_key:
-            try:
-                print(f"🔧 Initializing Groq LLM: {groq_model}")
-                self.llm = Groq(model=groq_model, api_key=groq_api_key)
-                print(f"✅ Groq LLM initialized successfully")
-            except Exception as e:
-                print(f"⚠️  Failed to initialize Groq LLM: {e}")
-                self.llm = None
-        else:
-            print("⚠️  No Groq API key found. LLM queries will not work.")
+        # Initialize LLM with fallback mechanism (Groq -> Gemini)
+        self.llm = create_llm_with_fallback(
+            groq_api_key=groq_api_key,
+            groq_model=groq_model,
+            gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model,
+            load_from_config=True
+        )
         
         # Load index
         self.index = self._load_index()
@@ -89,28 +88,6 @@ class QASystem:
         if self.llm:
             self.query_engine = self._create_query_engine()
     
-    def _load_groq_api_key(self) -> Optional[str]:
-        """Load Groq API key from Config.yaml."""
-        try:
-            # Try multiple possible paths for Config.yaml
-            config_paths = [
-                Path(__file__).parent.parent / "Config.yaml",  # src/../Config.yaml
-                Path(__file__).parent.parent.parent / "Config.yaml",  # src/../../Config.yaml
-                Path("Config.yaml"),  # Current directory
-                Path(__file__).parent / "Config.yaml",  # src/Config.yaml (unlikely)
-            ]
-            
-            for config_path in config_paths:
-                abs_path = config_path.resolve()
-                if abs_path.exists():
-                    with open(abs_path, 'r', encoding='utf-8') as f:
-                        config = yaml.safe_load(f)
-                    api_key = config.get('groq', {}).get('api_key')
-                    if api_key:
-                        return api_key
-        except Exception as e:
-            print(f"⚠️  Could not load Groq API key from config: {e}")
-        return None
     
     def _load_index(self) -> VectorStoreIndex:
         """Load the vector index from ChromaDB."""
@@ -146,41 +123,60 @@ class QASystem:
         # 2. Uses metadata (titles, questions) internally for better understanding
         # 3. Provides well-formatted, ChatGPT-style responses
         qa_prompt_template = PromptTemplate(
-            "You are a helpful assistant that provides clear, well-structured answers based on the provided context.\n\n"
-            "Context information from the knowledge base:\n"
+            "You are a highly knowledgeable and articulate AI assistant. "
+            "Your goal is to provide clear, well-structured, natural, and insightful answers — "
+            "as if you are explaining confidently from your own understanding.\n\n"
+
+            "📚 INFORMATION SOURCE:\n"
+            "Use ONLY the information from the context below. "
+            "The context contains actual document content - focus on the substantive text content, "
+            "not file paths, directory names, or metadata.\n"
             "---------------------\n"
             "{context_str}\n"
             "---------------------\n\n"
-            "IMPORTANT INSTRUCTIONS:\n\n"
-            "📋 CONTENT GUIDELINES:\n"
-            "• Use ONLY the context information above to answer the question\n"
-            "• Use metadata (titles, questions answered) internally to better understand the context, but don't explicitly mention them as metadata fields\n"
-            "• Synthesize information from multiple sources if needed\n"
-            "• If the context does not contain enough information, say so explicitly\n"
-            "• Do not use prior knowledge outside the provided context\n\n"
-            "✨ FORMATTING REQUIREMENTS:\n"
-            "• Use clear headings with ## or ### for main sections\n"
-            "• Use bullet points (• or -) for lists and key points\n"
-            "• Organize content into logical sections\n"
-            "• Add relevant emojis to improve readability (✨ 📝 📦 💡 🔍 ✅ ⚠️ 🎯 📊 🔗 etc.)\n"
-            "• Use proper spacing between sections\n"
-            "• Make the response engaging, user-friendly, and visually appealing\n"
-            "• Structure longer answers with:\n"
-            "  - An introduction/overview\n"
-            "  - Main points in organized sections\n"
-            "  - A brief summary if appropriate\n\n"
-            "🚫 DO NOT:\n"
-            "• Include metadata fields like 'title' or 'questions_answered' as separate items\n"
-            "• Show raw metadata in your response\n"
-            "• Use overly technical language unless necessary\n\n"
-            "Question: {query_str}\n\n"
-            "Answer (formatted nicely with headings, bullet points, emojis, and clear structure): "
+
+            "⚠️ CRITICAL INSTRUCTIONS:\n"
+            "• IGNORE file paths, directory names, folder structures, or system metadata.\n"
+            "• FOCUS ONLY on the actual document content - the substantive text about the topic.\n"
+            "• If the context only contains file paths or metadata without actual content, "
+            "say 'I cannot answer this question as the retrieved documents do not contain relevant content.'\n"
+            "• Base your answer ONLY on the actual document text content provided.\n\n"
+
+            "🎯 RESPONSE STYLE REQUIREMENTS:\n"
+            "• Do NOT mention or reference 'context', 'documents', 'files', 'chunks', or 'metadata'.\n"
+            "• Do NOT write phrases like 'According to the document' or 'Based on the context'.\n"
+            "• Do NOT reference file paths, directory names, or system information.\n"
+            "• Respond naturally, as if you already know the information.\n"
+            "• Be confident, informative, and professional — do not sound robotic.\n"
+            "• Use heading structure (##, ###) and bullet points where helpful.\n"
+            "• Add light, relevant emojis only where they improve readability (✨ 💡 📌 📊 📝 ⚠️ 🚀).\n"
+            "• Do NOT explain how you derived the answer or mention backend processes.\n"
+            "• Provide meaningful, narrative-style answers, not just bullet point extractions.\n"
+            "• Structure long answers with introduction, key points, and conclusion.\n\n"
+
+            "🚫 AVOID:\n"
+            "• Avoid generic section titles like Introduction, Conclusion, Summary.\n"
+            "• Prefer narrative descriptions over bullet-point extractions.\n"
+            "• Write in a smooth, well-connected flow, using transitional phrases.\n"
+            "• Keep tone professional, articulate, and reflective—like a research scientist or academic advisor is describing the person.\n"
+            "• NEVER mention file paths, directories, or system metadata in your answer.\n\n"
+
+            "💡 Final Goal:\n"
+            "Provide a polished, human-like, insightful response based on the actual document content — "
+            "suitable for a well-written profile summary, professional explanation, or academic-level answer.\n\n"
+
+            "📝 Question: {query_str}\n\n"
+            "💬 Answer:"
         )
+
+
+    
+
         
         try:
             query_engine = self.index.as_query_engine(
                 llm=self.llm,
-                similarity_top_k=5,  # Retrieve top 5 most relevant chunks
+                similarity_top_k=10,  # Retrieve top 10 most relevant chunks
                 response_mode="compact",  # Compact response mode for efficiency
                 text_qa_template=qa_prompt_template  # Our custom prompt
             )
@@ -190,13 +186,13 @@ class QASystem:
             # Fallback if text_qa_template parameter doesn't work
             query_engine = self.index.as_query_engine(
                 llm=self.llm,
-                similarity_top_k=5,
+                similarity_top_k=10,
                 response_mode="compact"
             )
             print(f"✅ Query engine created (using default prompt)")
             return query_engine
     
-    def answer(self, question: str) -> Dict[str, Any]:
+    def answer(self, question: str, document_path: Optional[str] = None) -> Dict[str, Any]:
         """
         Q3: Answer a question using RAG (Retrieval + LLM generation).
         
@@ -207,6 +203,7 @@ class QASystem:
         
         Args:
             question: User's question
+            document_path: Optional path to filter by specific document (e.g., "adm.pdf")
             
         Returns:
             Dictionary containing:
@@ -222,10 +219,211 @@ class QASystem:
             }
         
         print(f"🤔 Processing question: {question}")
+        if document_path:
+            print(f"📄 Filtering by document: {document_path}")
+            print(f"   📝 Raw document_path received: '{document_path}'")
         
         try:
-            # Query the engine (retrieves context + generates answer)
-            response = self.query_engine.query(question)
+            # If document_path is provided, create a filtered query engine
+            if document_path:
+                # Normalize the document path to match how it's stored in metadata
+                # The file_name in metadata might be stored as "data/filename.pdf" or just "filename.pdf"
+                # We need to match both possibilities
+                normalized_path = document_path.replace('\\', '/')
+                
+                # Try different path formats that might be stored in metadata
+                possible_paths = []
+                if normalized_path.startswith('data/'):
+                    possible_paths.append(normalized_path)
+                    possible_paths.append(normalized_path.replace('data/', ''))
+                    possible_paths.append(normalized_path.replace('/', '\\'))
+                else:
+                    possible_paths.append(normalized_path)
+                    possible_paths.append(f"data/{normalized_path}")
+                    # Fix: Extract backslash replacement outside f-string
+                    windows_path = normalized_path.replace('/', '\\')
+                    possible_paths.append(f"data\\{windows_path}")
+                
+                # Get the custom prompt template from the existing query engine
+                custom_template = None
+                if hasattr(self.query_engine, '_text_qa_template'):
+                    custom_template = self.query_engine._text_qa_template
+                elif hasattr(self.query_engine, 'retriever') and hasattr(self.query_engine.retriever, '_text_qa_template'):
+                    custom_template = self.query_engine.retriever._text_qa_template
+                
+                # Create a retriever with metadata filtering
+                # We'll filter nodes after retrieval since ChromaDB filter syntax may vary
+                retriever = self.index.as_retriever(similarity_top_k=20)  # Get more results to filter from
+                
+                # Retrieve nodes and filter by file_name
+                retrieved_nodes = retriever.retrieve(question)
+                
+                # Extract just the filename from the document_path (e.g., "adm.pdf" from "data/adm.pdf")
+                doc_filename = Path(normalized_path).name
+                
+                print(f"   🔍 Looking for document: '{doc_filename}'")
+                print(f"   📋 Checking {len(retrieved_nodes)} retrieved nodes...")
+                print(f"   📝 Possible paths to match: {possible_paths}")
+                
+                # Filter nodes to only include those from the specified document
+                filtered_nodes = []
+                all_filenames_seen = set()  # Track all filenames we see for debugging
+                
+                for i, node in enumerate(retrieved_nodes):
+                    node_file_name = node.metadata.get('file_name', '')
+                    # Normalize the node file name for comparison
+                    node_filename = Path(node_file_name.replace('\\', '/')).name
+                    all_filenames_seen.add(node_filename)
+                    
+                    # Debug: Print first few nodes to see what we're comparing
+                    if i < 5:
+                        print(f"      Node {i+1}: file_name='{node_file_name}', extracted_filename='{node_filename}'")
+                    
+                    # Multiple matching strategies:
+                    # 1. Exact filename match (case-insensitive)
+                    filename_matches = node_filename.lower() == doc_filename.lower()
+                    
+                    # 2. Check if filename without extension matches (in case of case differences)
+                    doc_name_no_ext = Path(doc_filename).stem.lower()
+                    node_name_no_ext = Path(node_filename).stem.lower()
+                    name_matches = doc_name_no_ext == node_name_no_ext
+                    
+                    # 3. Check if any of the possible paths match
+                    path_matches = False
+                    for path in possible_paths:
+                        path_filename = Path(path.replace('\\', '/')).name
+                        # Check exact filename match
+                        if path_filename.lower() == node_filename.lower():
+                            path_matches = True
+                            break
+                        # Check if path is contained in file_name (for cases like "data/adm.pdf")
+                        normalized_node_path = node_file_name.replace('\\', '/').lower()
+                        normalized_check_path = path.replace('\\', '/').lower()
+                        if normalized_check_path in normalized_node_path or normalized_node_path.endswith(normalized_check_path):
+                            path_matches = True
+                            break
+                        # Also check filename part
+                        if path_filename.lower() == node_filename.lower():
+                            path_matches = True
+                            break
+                    
+                    matches = filename_matches or name_matches or path_matches
+                    
+                    if matches:
+                        filtered_nodes.append(node)
+                        if len(filtered_nodes) <= 3:
+                            print(f"      ✅ MATCH FOUND: {node_file_name}")
+                
+                # Debug: Show all unique filenames found
+                print(f"   📚 All filenames in retrieved nodes: {sorted(all_filenames_seen)}")
+                
+                print(f"   📊 Found {len(filtered_nodes)} matching nodes out of {len(retrieved_nodes)} retrieved")
+                
+                # If we found filtered nodes, use them; otherwise return an error
+                if filtered_nodes:
+                    print(f"   ✅ Filtered to {len(filtered_nodes)} chunks from document: {document_path}")
+                    # Limit to top 10 filtered nodes (keep them sorted by relevance)
+                    filtered_nodes = filtered_nodes[:10]
+                    
+                    # Create a query engine with the filtered nodes
+                    # We'll use a custom retriever that returns only filtered nodes
+                    from llama_index.core.query_engine import RetrieverQueryEngine
+                    
+                    # Create a custom retriever that returns only filtered nodes
+                    class FilteredRetriever:
+                        def __init__(self, nodes):
+                            self.nodes = nodes
+                        
+                        def retrieve(self, query_str):
+                            return self.nodes
+                    
+                    filtered_retriever = FilteredRetriever(filtered_nodes)
+                    
+                    # Get the prompt template from the existing query engine
+                    try:
+                        # Try to get the prompt template from the query engine
+                        if custom_template:
+                            template = custom_template
+                        else:
+                            # Use the default template from the QA prompt
+                            template = PromptTemplate(
+                                "You are a highly knowledgeable and articulate AI assistant. "
+                                "Your goal is to provide clear, well-structured, natural, and insightful answers — "
+                                "as if you are explaining confidently from your own understanding.\n\n"
+                                "📚 INFORMATION SOURCE:\n"
+                                "Use ONLY the information from the context below. "
+                                "The context contains actual document content - focus on the substantive text content, "
+                                "not file paths, directory names, or metadata.\n"
+                                "---------------------\n"
+                                "{context_str}\n"
+                                "---------------------\n\n"
+                                "⚠️ CRITICAL INSTRUCTIONS:\n"
+                                "• IGNORE file paths, directory names, folder structures, or system metadata.\n"
+                                "• FOCUS ONLY on the actual document content - the substantive text about the topic.\n"
+                                "• If the context only contains file paths or metadata without actual content, "
+                                "say 'I cannot answer this question as the retrieved documents do not contain relevant content.'\n"
+                                "• Base your answer ONLY on the actual document text content provided.\n\n"
+                                "📝 Question: {query_str}\n\n"
+                                "💬 Answer:"
+                            )
+                    except:
+                        template = None
+                    
+                    # Create query engine with filtered retriever
+                    filtered_query_engine = RetrieverQueryEngine(
+                        retriever=filtered_retriever,
+                        llm=self.llm,
+                        response_mode="compact",
+                        text_qa_template=template
+                    )
+                    
+                    response = filtered_query_engine.query(question)
+                else:
+                    # No matching nodes found - return error instead of searching all documents
+                    print(f"   ❌ No chunks found for document: {document_path}")
+                    print(f"   💡 Document might not be indexed or path doesn't match")
+                    
+                    # Get list of unique document names from retrieved nodes for debugging
+                    available_docs = list(set(Path(n.metadata.get('file_name', 'Unknown')).name for n in retrieved_nodes[:10] if n.metadata.get('file_name')))
+                    
+                    error_msg = (
+                        f"I couldn't find any content from the document '{doc_filename}' in the index.\n\n"
+                        f"Please make sure:\n"
+                        f"1. The document is indexed (build the index if needed)\n"
+                        f"2. The document name matches exactly\n\n"
+                    )
+                    if available_docs:
+                        error_msg += f"Available documents in index: {', '.join(available_docs[:5])}"
+                    
+                    return {
+                        "answer": error_msg,
+                        "sources": [],
+                        "confidence": 0.0
+                    }
+            else:
+                # Use the default query engine (no filtering)
+                response = self.query_engine.query(question)
+            
+            # Extract source documents first to check content quality
+            source_nodes = getattr(response, 'source_nodes', [])
+            
+            # Debug: Check if retrieved content is meaningful
+            if source_nodes:
+                print(f"   📊 Retrieved {len(source_nodes)} source chunks")
+                # Check first source for content quality
+                first_node = source_nodes[0]
+                content_preview = first_node.text[:200] if first_node.text else "NO TEXT"
+                print(f"   🔍 First chunk preview: {content_preview}...")
+                
+                # Warn if content looks like metadata only
+                if first_node.text and (
+                    'data\\' in first_node.text or 
+                    'data/' in first_node.text or 
+                    'RAG_TO_MODIFY' in first_node.text or
+                    len(first_node.text.strip()) < 50
+                ):
+                    print(f"   ⚠️  WARNING: Retrieved content appears to be mostly metadata/paths")
+                    print(f"   ⚠️  This may indicate indexing issues - consider rebuilding the index")
             
             # Extract answer (LLM-generated response)
             if hasattr(response, 'response'):
@@ -234,7 +432,6 @@ class QASystem:
                 answer = str(response).strip()
             
             # Extract source documents (metadata used internally, not exposed in response)
-            source_nodes = getattr(response, 'source_nodes', [])
             sources = []
             for node in source_nodes[:5]:
                 source_path = node.metadata.get('file_name', 'Unknown')
