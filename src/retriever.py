@@ -42,9 +42,9 @@ class DocumentRetriever:
         self.collection_name = collection_name
         
         # Initialize embedding model (must match the one used for indexing)
-        print(f"🔧 Loading embedding model: {embedding_model_name}")
+        print(f" Loading embedding model: {embedding_model_name}")
         self.embed_model = HuggingFaceEmbedding(model_name=embedding_model_name)
-        print(f"✅ Embedding model loaded")
+        print(f" Embedding model loaded")
         
         # Initialize ChromaDB client
         if not self.vectorstore_dir.exists():
@@ -62,7 +62,7 @@ class DocumentRetriever:
         Returns:
             VectorStoreIndex: The loaded index
         """
-        print(f"📂 Loading index from {self.vectorstore_dir}...")
+        print(f" Loading index from {self.vectorstore_dir}...")
         
         # Get the ChromaDB collection
         chroma_collection = self.chroma_client.get_collection(
@@ -76,7 +76,7 @@ class DocumentRetriever:
             embed_model=self.embed_model
         )
         
-        print(f"✅ Index loaded successfully")
+        print(f" Index loaded successfully")
         return index
     
     def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
@@ -102,8 +102,8 @@ class DocumentRetriever:
                 - similarity_percent: Similarity as percentage
                 - metadata: Additional metadata
         """
-        print(f"🔍 Searching for: '{query}'")
-        print(f"📊 Retrieving top {k} results...\n")
+        print(f" Searching for: '{query}'")
+        print(f" Retrieving top {k} results...\n")
         
         # Create retriever from index
         retriever = self.index.as_retriever(similarity_top_k=k)
@@ -165,11 +165,11 @@ class DocumentRetriever:
         results = self.search(query, k=k)
         
         if not results:
-            print("❌ No results found.")
+            print(" No results found.")
             return
         
         print("="*80)
-        print("📊 SEARCH RESULTS")
+        print(" SEARCH RESULTS")
         print("="*80 + "\n")
         
         for result in results:
@@ -198,6 +198,6 @@ class DocumentRetriever:
         
         # Summary statistics
         avg_similarity = sum(r['similarity'] for r in results) / len(results)
-        print(f"📈 Average Similarity: {avg_similarity*100:.1f}%")
-        print(f"📚 Total Results: {len(results)}")
+        print(f" Average Similarity: {avg_similarity*100:.1f}%")
+        print(f" Total Results: {len(results)}")
 
