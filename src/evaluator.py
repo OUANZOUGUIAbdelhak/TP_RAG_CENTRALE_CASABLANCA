@@ -3,7 +3,7 @@ Q4: RAG/LLM System Evaluation
 ==============================
 This module implements evaluation mechanisms for the RAG system.
 
-Features:
+Features: 
 - Evaluate retrieval quality (relevance of retrieved documents)
 - Evaluate answer quality (LLM response quality)
 - Compute various metrics (precision, relevance, etc.)
