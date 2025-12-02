@@ -27,7 +27,7 @@ class DocumentRetriever:
     
     def __init__(self,
                  vectorstore_dir: str = "./vectorstore",
-                 embedding_model_name: str = "BAAI/bge-small-en-v1.5",
+                 embedding_model_name: str = "BAAI/bge-large-en-v1.5",
                  collection_name: str = "rag_collection"):
         """
         Initialize the document retriever.
@@ -79,7 +79,7 @@ class DocumentRetriever:
         print(f" Index loaded successfully")
         return index
     
-    def search(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+    def search(self, query: str, k: int = 10) -> List[Dict[str, Any]]:
         """
         Q2: Search for relevant documents in the vector database.
         
@@ -151,7 +151,7 @@ class DocumentRetriever:
         
         return results
     
-    def search_and_print_results(self, query: str, k: int = 5):
+    def search_and_print_results(self, query: str, k: int = 10):
         """
         Q2: Search and print results in a formatted way.
         

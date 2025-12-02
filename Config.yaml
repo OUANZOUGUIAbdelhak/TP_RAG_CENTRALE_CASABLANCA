@@ -3,12 +3,13 @@
 
 # Paths and directories
 paths:
-  data_dir: "./data"  # where your PDF documents are stored
-  vectorstore_dir: "./vectorstore"  # where the vector database will be saved
+  data_dir: "./data/files"  # where your PDF documents are stored (inside data/files folder)
+  vectorstore_dir: "./data/vectorstore"  # where the vector database will be saved (inside data folder)
+  chat_sessions_dir: "./data/chat_sessions"  # where chat sessions will be saved (inside data folder)
   
 # Embedding model configuration
 embedding:
-  model_name: "BAAI/bge-small-en-v1.5"  # Better embedding model for LlamaIndex
+  model_name: "BAAI/bge-large-en-v1.5"  # Better embedding model for LlamaIndex
   # Other options you could try:
   # - "BAAI/bge-base-en-v1.5" (better quality, slower)
   # - "sentence-transformers/all-MiniLM-L6-v2" (faster, smaller)
@@ -25,7 +26,7 @@ document_processing:
   
 # Retrieval settings (Q2)
 retrieval:
-  default_k: 5  # default number of documents to retrieve
+  default_k: 10  # default number of documents to retrieve
   score_threshold: 0.5  # only return documents with score below this (lower = better)
   
 # LLM settings (for Q3)
@@ -36,8 +37,14 @@ llm:
 
 # Groq LLM settings (for Q3) - Preferred LLM
 groq:
-  api_key: "your_key_here"  # Your Groq API key
+  api_key: "your_groq_api_key"  # Your Groq API key
   model: "llama-3.3-70b-versatile"  # Groq model to use
+  temperature: 0.7  # controls randomness (0 = focused, 1 = creative)
+
+# Gemini LLM settings (for Q3) - Fallback LLM when Groq is unavailable
+gemini:
+  api_key: "AIzaSyBJoxKAeUoeT-2wt9VOP_fOPINHXEKzzW8"  # Your Gemini API key
+  model: "gemini-2.0-flash"  # Gemini model to use (matches your API setup)
   temperature: 0.7  # controls randomness (0 = focused, 1 = creative)
   
 # Evaluation settings (for Q4)

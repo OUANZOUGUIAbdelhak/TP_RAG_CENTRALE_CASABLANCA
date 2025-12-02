@@ -54,6 +54,30 @@ def load_config():
     
     return {}
 
+def get_api_key(config_key: str, env_var: str, default: Optional[str] = None) -> Optional[str]:
+    """
+    Get API key from config, with environment variable as fallback.
+    
+    Args:
+        config_key: API key from config (may be a placeholder)
+        env_var: Environment variable name to check
+        default: Default value if neither config nor env var is available
+        
+    Returns:
+        API key string or None
+    """
+    # Check if config key is a placeholder or empty
+    placeholder_values = ["your_key_here", "your_key", "your_gemini_api_key_here", ""]
+    if config_key and config_key not in placeholder_values:
+        return config_key
+    
+    # Fallback to environment variable
+    env_key = os.getenv(env_var)
+    if env_key:
+        return env_key
+    
+    return default
+
 CONFIG = load_config()
 
 # Global configuration
@@ -208,9 +232,9 @@ def initialize_rag_system():
         config = load_config()
         groq_config = config.get('groq', {})
         gemini_config = config.get('gemini', {})
-        groq_api_key = groq_config.get('api_key')
+        groq_api_key = get_api_key(groq_config.get('api_key'), 'GROQ_API_KEY')
         groq_model = groq_config.get('model', 'llama-3.3-70b-versatile')
-        gemini_api_key = gemini_config.get('api_key')
+        gemini_api_key = get_api_key(gemini_config.get('api_key'), 'GEMINI_API_KEY')
         gemini_model = gemini_config.get('model', 'gemini-2.0-flash')
         
         # Initialize retriever
@@ -460,9 +484,9 @@ async def build_index(request: BuildIndexRequest = None):
         # Get Groq and Gemini API keys for advanced RAG pipeline (with fallback)
         groq_config = config.get('groq', {})
         gemini_config = config.get('gemini', {})
-        groq_api_key = groq_config.get('api_key')
+        groq_api_key = get_api_key(groq_config.get('api_key'), 'GROQ_API_KEY')
         groq_model = groq_config.get('model', 'llama-3.3-70b-versatile')
-        gemini_api_key = gemini_config.get('api_key')
+        gemini_api_key = get_api_key(gemini_config.get('api_key'), 'GEMINI_API_KEY')
         gemini_model = gemini_config.get('model', 'gemini-2.0-flash')
         
         indexer = DocumentIndexer(

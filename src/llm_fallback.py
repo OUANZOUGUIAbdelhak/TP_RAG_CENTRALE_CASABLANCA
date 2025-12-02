@@ -233,8 +233,22 @@ def create_llm_with_fallback(
             if not gemini_model:
                 gemini_model = gemini_config.get('model', 'gemini-2.0-flash')
     
-    # Try Groq first
-    if groq_api_key and Groq:
+    # Check environment variables as fallback (useful for deployment/CI)
+    # Only use env vars if config value is missing or is a placeholder
+    if not groq_api_key or groq_api_key in ["your_key_here", "your_key", ""]:
+        groq_api_key = os.getenv("GROQ_API_KEY") or groq_api_key
+    
+    if not gemini_api_key or gemini_api_key in ["your_gemini_api_key_here", "your_key", ""]:
+        gemini_api_key = os.getenv("GEMINI_API_KEY") or gemini_api_key
+    
+    # Check if Groq API key is valid (not a placeholder)
+    groq_key_is_valid = groq_api_key and groq_api_key not in ["your_key_here", "your_key", ""]
+    
+    # Skip Groq entirely if API key is invalid/placeholder and go straight to Gemini
+    if not groq_key_is_valid:
+        print(f"ℹ️  Groq API key not configured, using Gemini directly...")
+    # Try Groq first (only if API key is valid)
+    elif groq_api_key and Groq:
         try:
             print(f"🔧 Attempting to initialize Groq LLM: {groq_model}")
             llm = Groq(model=groq_model, api_key=groq_api_key)
@@ -244,11 +258,13 @@ def create_llm_with_fallback(
             print(f"⚠️  Failed to initialize Groq LLM: {e}")
             print(f"🔄 Falling back to Gemini...")
     else:
-        if not groq_api_key:
-            print(f"⚠️  No Groq API key provided")
-        if not Groq:
-            print(f"⚠️  Groq package not available")
-        print(f"🔄 Attempting to use Gemini...")
+        # Groq skipped or not available - go to Gemini
+        if not groq_key_is_valid:
+            pass  # Already printed message above
+        elif not Groq:
+            print(f"⚠️  Groq package not available, using Gemini...")
+        else:
+            print(f"🔄 Attempting to use Gemini...")
     
     # Fallback to Gemini
     if gemini_api_key and GEMINI_AVAILABLE:

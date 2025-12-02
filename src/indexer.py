@@ -244,7 +244,16 @@ class DocumentIndexer:
                     all_nodes.extend(doc_nodes)
                     print(f"         ✅ Generated {len(doc_nodes)} nodes from {doc_name}")
                 except Exception as e:
-                    print(f"         ⚠️  Error processing {doc_name}: {e}")
+                    error_str = str(e).lower()
+                    # Check if it's a 401/authentication error
+                    is_auth_error = "401" in error_str or "invalid api key" in error_str or "unauthorized" in error_str
+                    
+                    if is_auth_error:
+                        # Suppress detailed error for auth failures - just note the fallback
+                        print(f"         ⚠️  LLM authentication failed, using fallback processing...")
+                    else:
+                        print(f"         ⚠️  Error processing {doc_name}: {e}")
+                    
                     # Fallback: just split the document if metadata extraction fails
                     try:
                         fallback_nodes = text_splitter.get_nodes_from_documents([doc], show_progress=False)

@@ -42,7 +42,7 @@ class QASystem:
     
     def __init__(self,
                  vectorstore_dir: str = "./vectorstore",
-                 embedding_model_name: str = "BAAI/bge-small-en-v1.5",
+                 embedding_model_name: str = "BAAI/bge-large-en-v1.5",
                  collection_name: str = "rag_collection",
                  groq_api_key: Optional[str] = None,
                  groq_model: str = "llama-3.3-70b-versatile",

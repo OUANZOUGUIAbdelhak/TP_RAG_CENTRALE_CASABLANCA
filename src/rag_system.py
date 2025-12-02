@@ -18,6 +18,31 @@ import chromadb
 from llm_fallback import create_llm_with_fallback
 
 
+def get_api_key(config_key: str, env_var: str, default: Optional[str] = None) -> Optional[str]:
+    """
+    Get API key from config, with environment variable as fallback.
+    
+    Args:
+        config_key: API key from config (may be a placeholder)
+        env_var: Environment variable name to check
+        default: Default value if neither config nor env var is available
+        
+    Returns:
+        API key string or None
+    """
+    # Check if config key is a placeholder or empty
+    placeholder_values = ["your_key_here", "your_key", "your_gemini_api_key_here", ""]
+    if config_key and config_key not in placeholder_values:
+        return config_key
+    
+    # Fallback to environment variable
+    env_key = os.getenv(env_var)
+    if env_key:
+        return env_key
+    
+    return default
+
+
 class RAGSystem:
     """
     Complete RAG system using LlamaIndex with ChromaDB vector store.
@@ -27,7 +52,7 @@ class RAGSystem:
     def __init__(self, 
                  data_dir: str = "./data",
                  vectorstore_dir: str = "./vectorstore",
-                 embedding_model: str = "BAAI/bge-small-en-v1.5",
+                 embedding_model: str = "BAAI/bge-large-en-v1.5",
                  chunk_size: int = 1024,
                  chunk_overlap: int = 128,
                  groq_api_key: Optional[str] = None,
@@ -527,9 +552,9 @@ def create_rag_system_from_config(config_path: str = "Config.yaml") -> RAGSystem
         embedding_model=embedding.get('model_name', 'BAAI/bge-small-en-v1.5'),
         chunk_size=doc_processing.get('chunk_size', 1024),
         chunk_overlap=doc_processing.get('chunk_overlap', 128),
-        groq_api_key=groq_config.get('api_key'),
+        groq_api_key=get_api_key(groq_config.get('api_key'), 'GROQ_API_KEY'),
         groq_model=groq_config.get('model', 'llama-3.3-70b-versatile'),
-        gemini_api_key=gemini_config.get('api_key'),
+        gemini_api_key=get_api_key(gemini_config.get('api_key'), 'GEMINI_API_KEY'),
         gemini_model=gemini_config.get('model', 'gemini-2.0-flash')
     )
 
