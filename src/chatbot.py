@@ -1,27 +1,58 @@
+"""
+RAG Chatbot - Q5 (Bonus): Construction de chatbot
+Chatbot with conversation memory using the RAG QA system.
+"""
+
 from typing import List, Dict, Any, Optional
 from qa_system import QASystem
 
 
 class RAGChatbot:
-
+    """
+    Q5 (Bonus): Chatbot with conversation memory.
+    Includes conversation history in prompts for contextual responses.
+    """
     
     def __init__(self, qa_system: QASystem, max_history: int = 5):
-
+        """
+        Initialize the RAG chatbot.
+        
+        Args:
+            qa_system: QASystem instance for answering questions
+            max_history: Maximum number of conversation turns to remember
+        """
         self.qa_system = qa_system
         self.max_history = max_history
         self.conversation_history = []
         self.session_id = None
     
     def start_session(self, session_id: str = None):
-
+        """
+        Start a new conversation session.
+        
+        Args:
+            session_id: Optional session identifier
+        """
         self.session_id = session_id or f"session_{len(self.conversation_history)}"
         self.conversation_history = []
         print(f" Nouvelle session de chat démarrée: {self.session_id}")
     
-    def chat(self, message: str, verbose: bool = False) -> Dict[str, Any]:
-
+    def chat(self, message: str, verbose: bool = False, document_path: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Process a chat message with conversation context.
+        
+        Args:
+            message: User's message
+            verbose: Print debug information
+            document_path: Optional path to filter by specific document
+            
+        Returns:
+            Dictionary with response and metadata
+        """
         if verbose:
             print(f" Message utilisateur: {message}")
+            if document_path:
+                print(f" Document spécifique: {document_path}")
         
         # Build contextualized query with conversation history
         contextualized_query = self._build_contextualized_query(message)
@@ -29,8 +60,8 @@ class RAGChatbot:
         if verbose and contextualized_query != message:
             print(f" Requête contextualisée: {contextualized_query[:200]}...")
         
-        # Get response from QA system
-        qa_result = self.qa_system.answer_question(contextualized_query)
+        # Get response from QA system with optional document filtering
+        qa_result = self.qa_system.answer(contextualized_query, document_path=document_path)
         
         # Store conversation turn
         conversation_turn = {
@@ -58,6 +89,15 @@ class RAGChatbot:
         return response
     
     def _build_contextualized_query(self, current_message: str) -> str:
+        """
+        Build a contextualized query including conversation history.
+        
+        Args:
+            current_message: Current user message
+            
+        Returns:
+            Contextualized query string
+        """
         if not self.conversation_history:
             return current_message
         
@@ -83,7 +123,12 @@ class RAGChatbot:
         return "\n".join(context_parts)
     
     def get_conversation_summary(self) -> Dict[str, Any]:
-
+        """
+        Get summary of current conversation.
+        
+        Returns:
+            Conversation summary with statistics
+        """
         if not self.conversation_history:
             return {
                 "session_id": self.session_id,
@@ -109,11 +154,19 @@ class RAGChatbot:
         }
     
     def _extract_topics(self, messages: List[str]) -> List[str]:
-
+        """
+        Extract main topics from conversation messages.
+        
+        Args:
+            messages: List of user messages
+            
+        Returns:
+            List of identified topics
+        """
         # Simple keyword-based topic extraction
         all_text = " ".join(messages).lower()
         
-        # Common topic keywords 
+        # Common topic keywords (extend based on your domain)
         topic_keywords = {
             "intelligence artificielle": ["ia", "intelligence artificielle", "machine learning", "deep learning"],
             "technologie": ["technologie", "tech", "innovation", "numérique"],
@@ -131,11 +184,17 @@ class RAGChatbot:
         return identified_topics
     
     def clear_history(self):
+        """Clear conversation history."""
         self.conversation_history = []
         print(f" Historique de conversation effacé pour la session {self.session_id}")
     
     def export_conversation(self) -> Dict[str, Any]:
-
+        """
+        Export conversation history.
+        
+        Returns:
+            Complete conversation data
+        """
         return {
             "session_id": self.session_id,
             "conversation_history": self.conversation_history,
@@ -208,15 +267,31 @@ class RAGChatbot:
 
 
 class MultiSessionChatbot:
+    """
+    Extended chatbot supporting multiple conversation sessions.
+    """
     
     def __init__(self, qa_system: QASystem):
-
+        """
+        Initialize multi-session chatbot.
+        
+        Args:
+            qa_system: QASystem instance
+        """
         self.qa_system = qa_system
         self.sessions = {}
         self.active_session = None
     
     def create_session(self, session_id: str) -> RAGChatbot:
-
+        """
+        Create a new chat session.
+        
+        Args:
+            session_id: Unique session identifier
+            
+        Returns:
+            RAGChatbot instance for the session
+        """
         if session_id in self.sessions:
             print(f" Session {session_id} existe déjà")
             return self.sessions[session_id]
@@ -230,17 +305,30 @@ class MultiSessionChatbot:
         return chatbot
     
     def switch_session(self, session_id: str) -> Optional[RAGChatbot]:
-
+        """
+        Switch to an existing session.
+        
+        Args:
+            session_id: Session to switch to
+            
+        Returns:
+            RAGChatbot instance or None if not found
+        """
         if session_id not in self.sessions:
             print(f" Session {session_id} introuvable")
             return None
         
         self.active_session = session_id
-        print(f" Basculé vers la session {session_id}")
+        print(f"🔄 Basculé vers la session {session_id}")
         return self.sessions[session_id]
     
     def list_sessions(self) -> Dict[str, Any]:
-
+        """
+        List all active sessions.
+        
+        Returns:
+            Dictionary of session summaries
+        """
         return {
             session_id: chatbot.get_conversation_summary()
             for session_id, chatbot in self.sessions.items()
